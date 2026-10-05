@@ -7,6 +7,37 @@ export function joinUrl(baseUrl: string, path: string): string {
 }
 
 const MAX_DETAIL_CHARS = 300;
+/** Legitimate answers are tens of KB at most (output tokens are capped); anything near this is a misbehaving host. */
+export const MAX_RESPONSE_BYTES = 1_000_000;
+
+function tooLarge(status: number): ProviderError {
+  return new ProviderError("bad_response", "The response was unexpectedly large and was discarded.", status);
+}
+
+/** Reads the body as text, giving up (and cancelling the stream) once it exceeds maxBytes. */
+export async function readTextCapped(res: Response, maxBytes: number = MAX_RESPONSE_BYTES): Promise<string> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => undefined);
+    throw tooLarge(res.status);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return res.text();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge(res.status);
+    }
+    chunks.push(value);
+  }
+  const decoder = new TextDecoder();
+  return chunks.map((c) => decoder.decode(c, { stream: true })).join("") + decoder.decode();
+}
 
 /** Map a non-2xx HTTP status to a ProviderError. Detail is truncated to 300 chars. */
 export function errorForStatus(status: number, detail: string): ProviderError {
@@ -88,7 +119,7 @@ export async function postJson(
     if (!res.ok) {
       let detail: string;
       try {
-        detail = (await res.text()).slice(0, MAX_DETAIL_CHARS);
+        detail = (await readTextCapped(res)).slice(0, MAX_DETAIL_CHARS);
       } catch {
         detail = "(could not read response body)";
       }
@@ -96,8 +127,9 @@ export async function postJson(
     }
 
     try {
-      return await res.json();
+      return JSON.parse(await readTextCapped(res));
     } catch (e) {
+      if (e instanceof ProviderError) throw e;
       if (controller.signal.aborted) throw abortError(timedOut, e);
       throw new ProviderError("bad_response", "Response body was not valid JSON.", res.status, { cause: e });
     }

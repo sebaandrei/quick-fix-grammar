@@ -119,9 +119,12 @@ describe.each(providers)("%s contract", (_n, make, ok) => {
   });
 
   it("unreadable error body uses placeholder detail", async () => {
-    const res = new Response("x", { status: 500 });
-    vi.spyOn(res, "text").mockRejectedValue(new Error("boom"));
-    fetchMock.mockResolvedValue(res);
+    const broken = new ReadableStream({
+      pull(controller) {
+        controller.error(new Error("boom"));
+      },
+    });
+    fetchMock.mockResolvedValue(new Response(broken, { status: 500 }));
     await expect(make().complete(req)).rejects.toMatchObject({
       kind: "bad_response",
       message: expect.stringContaining("(could not read response body)"),
