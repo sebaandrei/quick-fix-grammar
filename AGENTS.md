@@ -55,7 +55,7 @@ docs/            models.md (model decision), compat.md and dogfood.md (to be wri
 ## Raycast Store guidelines (for the open-source release)
 
 - Everything user-facing is **US English** and **Title Case** for the extension title and command titles. Command titles are `<verb> <noun>` or `<noun>`, no articles. Subtitles add context (service name) and must not repeat the title.
-- `package.json`: `license: MIT`, `author` = real Raycast username (currently a placeholder guess, must be set before publishing), valid categories (`Productivity`), latest `@raycast/api`, `platforms` matches reality (macOS only for now).
+- `package.json`: `license: MIT`, `author` = real Raycast username (`sebastian_andrei_roman`; `ray lint` checks it against raycast.com), valid categories (`Productivity`), latest `@raycast/api`, `platforms` matches reality (macOS only for now).
 - Icon: 512×512 PNG, works in light and dark, not the default Raycast icon (icon.ray.so). `assets/extension-icon.png` is rendered from `docs/icon-source.svg` (re-render to PNG at 512×512 after editing the SVG).
 - Screenshots: 3 to 6, 2000×1250 PNG (16:10), made with Raycast's Window Capture, consistent background, no sensitive data. They go in `metadata/`.
 - `CHANGELOG.md`: `## [Title] - {PR_MERGE_DATE}` headings. Add an entry for every user-visible change.

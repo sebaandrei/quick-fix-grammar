@@ -4,7 +4,7 @@
   "title": "Quick Fix Grammar",
   "description": "Fix, shorten, re-tone or translate selected text in place using your own AI API key.",
   "icon": "extension-icon.png",
-  "author": "sebastian_roman",
+  "author": "sebastian_andrei_roman",
   "platforms": [
     "macOS"
   ],
