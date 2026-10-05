@@ -26,6 +26,11 @@ function withoutClass(text: string, cls: RegExp): string {
   return text.replace(new RegExp(cls.source, `${cls.flags}g`), "");
 }
 
+/** Unconditionally removes control (except tab, newline, CR), bidi, zero-width and tag characters. For display text. */
+export function stripHidden(text: string): string {
+  return withoutClass(withoutClass(text, CONTROL_CHARS), INVISIBLE_CHARS);
+}
+
 /** Removes each class of unexpected characters unless the original text itself contained that class. */
 function stripInvisible(out: string, original: string): string {
   let result = out;

@@ -64,6 +64,16 @@ describe("toUserMessage", () => {
     expect(m.message.length).toBeLessThan(300);
     expect(toUserMessage(new ProviderError("bad_response", "")).message).toMatch(/unexpected or empty/);
   });
+  it("provider text is cleaned of control and invisible characters and clipped", () => {
+    const hostile = `Visit \u001b[31mevil.example\u001b[0m now \u202eto fix\u200b this\n\n${"x".repeat(400)}`;
+    const isHidden = (c: string) => c.charCodeAt(0) < 32 || [0x7f, 0x200b, 0x202e].includes(c.charCodeAt(0));
+    for (const kind of ["bad_response", "request"] as const) {
+      const { message } = toUserMessage(new ProviderError(kind, hostile));
+      expect([...message].some(isHidden)).toBe(false);
+      expect(message).toContain("Visit [31mevil.example[0m now to fix this");
+      expect(message.length).toBeLessThan(260);
+    }
+  });
   it("network message mentions the base URL only conditionally", () => {
     expect(toUserMessage(new ProviderError("network", "x")).message).toMatch(/if you use OpenAI-compatible/);
   });

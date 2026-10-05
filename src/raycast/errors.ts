@@ -1,5 +1,6 @@
 import { InputError, DEFAULT_MAX_CHARS } from "../core/run";
 import { ProviderError } from "../core/providers/types";
+import { stripHidden } from "../core/sanitize";
 
 export interface UserMessage {
   title: string;
@@ -58,14 +59,19 @@ const CONFIG_MESSAGES: Record<ConfigErrorKind, UserMessage> = {
   },
 };
 
-const MAX_DETAIL_CHARS = 200;
+const MAX_DETAIL_CHARS = 120;
+
+/** Provider text made safe for a HUD: no control/invisible characters, one line, clipped. */
+function cleanDetail(message: string): string {
+  const text = stripHidden(message).replace(/\s+/g, " ").trim();
+  return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}…` : text;
+}
 
 /** One short sentence from a provider error message, safe to show in a HUD. */
 function shortDetail(message: string): string {
-  const text = message.replace(/\s+/g, " ").trim();
+  const text = cleanDetail(message);
   if (!text) return "The provider returned an unexpected or empty response.";
-  const clipped = text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}…` : text;
-  return /[.!?…]$/.test(clipped) ? clipped : `${clipped}.`;
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
 function providerMessage(err: ProviderError): UserMessage {
@@ -105,7 +111,7 @@ function providerMessage(err: ProviderError): UserMessage {
     case "request":
       return {
         title: "Request rejected",
-        message: `The provider rejected the request (${err.message}). Check that the model name exists for the selected provider.`,
+        message: `The provider rejected the request (${cleanDetail(err.message)}). Check that the model name exists for the selected provider.`,
       };
     default: {
       const unreachable: never = kind;
