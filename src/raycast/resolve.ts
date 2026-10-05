@@ -1,4 +1,5 @@
 import type { EnglishVariant, ModeId } from "../core/modes";
+import { baseUrlProblem } from "../core/providers/base-url";
 import { isProviderId, type ProviderId } from "../core/providers/types";
 import { isOpenRouterUrl } from "../core/providers/attribution";
 import { ConfigError } from "./errors";
@@ -99,6 +100,7 @@ export function validateConfig(cfg: ExtensionConfig, model?: string): void {
   if (!cfg.apiKey.trim()) throw new ConfigError("missing_api_key");
   if (cfg.provider === "openai-compatible") {
     if (!cfg.baseUrl) throw new ConfigError("missing_base_url");
+    if (baseUrlProblem(cfg.baseUrl)) throw new ConfigError("bad_base_url");
     if (!clean(model)) throw new ConfigError("missing_model");
   }
 }

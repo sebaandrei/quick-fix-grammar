@@ -24,6 +24,14 @@ export function isOfficialBaseUrl(baseUrl: string): boolean {
   return baseUrl.trim().replace(/\/+$/, "").toLowerCase() === OPENAI_BASE_URL;
 }
 
+/**
+ * Upper bound on generated tokens (cost and runaway-output guard). Generous on purpose: reasoning models spend
+ * hidden thinking tokens inside this budget, so a tight cap would cut off legitimate answers.
+ */
+export function estimateMaxTokens(userChars: number): number {
+  return Math.min(16_384, Math.max(4_096, Math.ceil(userChars * 1.5) + 1_024));
+}
+
 interface OpenAIResponse {
   choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
   /** OpenRouter can answer HTTP 200 with a top-level error object and no choices. */
@@ -71,6 +79,9 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
           { role: "user", content: req.user },
         ],
       };
+      // OpenAI's own gpt-5 / o-series models reject max_tokens and take max_completion_tokens instead.
+      const capParam = isOfficial && isFixedTemperatureModel(req.model) ? "max_completion_tokens" : "max_tokens";
+      body[capParam] = estimateMaxTokens(req.user.length);
       if (isOfficial && supportsMinimalReasoning(req.model)) body.reasoning_effort = "minimal";
       if (req.temperature !== undefined && !(isOfficial && isFixedTemperatureModel(req.model))) {
         body.temperature = req.temperature;

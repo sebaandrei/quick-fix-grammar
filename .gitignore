@@ -19,6 +19,7 @@ eval/results/*
 
 # Test and coverage artifacts
 coverage/
+.vitest/
 .vitest-cache/
 
 # Logs

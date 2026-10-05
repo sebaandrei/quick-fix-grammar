@@ -1,4 +1,13 @@
-import { Clipboard, PopToRootType, Toast, closeMainWindow, getSelectedText, showHUD, showToast } from "@raycast/api";
+import {
+  Clipboard,
+  PopToRootType,
+  getFrontmostApplication,
+  Toast,
+  closeMainWindow,
+  getSelectedText,
+  showHUD,
+  showToast,
+} from "@raycast/api";
 import type { ModeId } from "../core/modes";
 import { createProvider } from "../core/providers";
 import { DEFAULT_MAX_CHARS, runMode } from "../core/run";
@@ -22,6 +31,10 @@ const deps: SelectionDeps = {
   paste: (text) => Clipboard.paste(text),
   clear: () => Clipboard.clear(),
   getSelectedText,
+  frontmostApp: async () => {
+    const app = await getFrontmostApplication();
+    return app.bundleId ?? app.path;
+  },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 

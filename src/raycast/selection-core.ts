@@ -5,6 +5,11 @@ import { NoSelectionError, SelectionReadError } from "./errors";
 /** Delay before restoring the clipboard so the target app finishes reading the pasted text. */
 export const RESTORE_DELAY_MS = 600;
 
+/** Bundle id of Raycast itself: while its window is still closing it is briefly the frontmost app. */
+export const RAYCAST_BUNDLE_ID = "com.raycast.macos";
+const FRONTMOST_RETRIES = 3;
+const FRONTMOST_RETRY_MS = 100;
+
 export interface ClipboardSnapshot {
   text?: string;
   html?: string;
@@ -20,10 +25,12 @@ export interface SelectionDeps {
   paste(text: string): Promise<void>;
   clear(): Promise<void>;
   getSelectedText(): Promise<string>;
+  /** Identifier (bundle id or path) of the frontmost app, or undefined when it cannot be determined. */
+  frontmostApp(): Promise<string | undefined>;
   sleep(ms: number): Promise<void>;
 }
 
-export type ReplaceOutcome = "replaced" | "unchanged" | "replaced_clipboard_not_restored";
+export type ReplaceOutcome = "replaced" | "unchanged" | "replaced_clipboard_not_restored" | "focus_changed";
 
 const EMPTY_SELECTION_RE = /unable to get selected text|no (text )?selected|nothing (is )?selected/i;
 const ACCESSIBILITY_RE = /accessib|not trusted|permission/i;
@@ -40,6 +47,28 @@ export async function readSelection(deps: Pick<SelectionDeps, "getSelectedText">
   }
   if (!text || !text.trim()) throw new NoSelectionError();
   return text;
+}
+
+async function readFrontmost(deps: SelectionDeps): Promise<string | undefined> {
+  try {
+    return await deps.frontmostApp();
+  } catch (err) {
+    console.error("Could not read the frontmost app:", err);
+    return undefined;
+  }
+}
+
+/**
+ * The app the result is meant for. If Raycast itself is frontmost (its window is still closing) wait briefly;
+ * if it still is, the target is unknown (undefined) and the later check is not enforced.
+ */
+async function targetApp(deps: SelectionDeps): Promise<string | undefined> {
+  for (let attempt = 0; attempt <= FRONTMOST_RETRIES; attempt++) {
+    const app = await readFrontmost(deps);
+    if (app !== RAYCAST_BUNDLE_ID) return app;
+    if (attempt < FRONTMOST_RETRIES) await deps.sleep(FRONTMOST_RETRY_MS);
+  }
+  return undefined;
 }
 
 function contentFor(snap: ClipboardSnapshot): CopyContent | undefined {
@@ -68,21 +97,49 @@ export async function replaceSelection(
   }
 
   const text = selected ?? (await readSelection(deps));
+  const target = await targetApp(deps);
   const result = await transform(text);
   if (!result.trim()) throw new ProviderError("bad_response", "Empty result");
   if (result === text) return "unchanged";
+
+  // The request can take seconds. If the user moved to another app (or opened Raycast) meanwhile, pasting would
+  // put their text into the wrong window, so keep the result on the clipboard instead and say so.
+  const now = await readFrontmost(deps);
+  if (target !== undefined && now !== undefined && now !== target) {
+    await deps.copy({ text: result });
+    return "focus_changed";
+  }
 
   let restored = false;
   try {
     await deps.paste(result);
   } finally {
     // Reached whether or not paste threw: a paste was attempted, so the clipboard may have changed.
-    restored = snapshot ? await restoreClipboard(deps, snapshot) : false;
+    restored = snapshot ? await restoreClipboard(deps, snapshot, result) : false;
   }
   return restored ? "replaced" : "replaced_clipboard_not_restored";
 }
 
-async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): Promise<boolean> {
+const sameText = (a?: string, b?: string) => (a ?? "").trim() === (b ?? "").trim();
+
+/**
+ * True when the clipboard now holds something the user copied during the delay: it has content and that content
+ * is neither our pasted result nor the original snapshot. Restoring over it would lose their newer copy.
+ */
+async function userCopiedSomethingNew(deps: SelectionDeps, snap: ClipboardSnapshot, result: string): Promise<boolean> {
+  try {
+    const now = await deps.readClipboard();
+    const hasContent = Boolean(now.text?.trim() || now.html || now.file);
+    const sameFile = (now.file ?? "") === (snap.file ?? "");
+    const isResult = sameText(now.text, result) && !now.file;
+    const isSnapshot = sameText(now.text, snap.text) && sameFile;
+    return hasContent && !isResult && !isSnapshot;
+  } catch {
+    return false; // cannot tell: keep the previous behavior and restore
+  }
+}
+
+async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot, result: string): Promise<boolean> {
   try {
     // An empty snapshot is ambiguous: the clipboard was empty, or held something we cannot read back
     // (an image, rich text). Either way there is nothing we can restore, so never clear (that would
@@ -90,6 +147,8 @@ async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): P
     const content = contentFor(snap);
     if (!content) return false;
     await deps.sleep(RESTORE_DELAY_MS);
+    // Their newer copy wins; nothing is left to restore, so this still counts as done.
+    if (await userCopiedSomethingNew(deps, snap, result)) return true;
     await deps.copy(content, { concealed: true });
     return true;
   } catch (err) {
@@ -139,6 +198,7 @@ export function labelsFor(modeId: ModeId): ModeLabels {
 
 export function hudFor(outcome: ReplaceOutcome, labels: ModeLabels): string {
   if (outcome === "unchanged") return labels.unchanged;
+  if (outcome === "focus_changed") return "You switched apps: the result is on your clipboard, not pasted";
   if (outcome === "replaced_clipboard_not_restored") return `${labels.done} (clipboard could not be restored)`;
   return labels.done;
 }

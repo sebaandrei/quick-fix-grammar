@@ -168,7 +168,7 @@ export function envKeyFor(spec: ModelSpec): string {
   if (spec.provider === "openrouter") return "OPENROUTER_API_KEY";
   if (spec.provider === "openai") return "OPENAI_API_KEY";
   if (spec.provider === "anthropic") return "ANTHROPIC_API_KEY";
-  return isOpenRouterUrl(spec.baseUrl ?? "") ?"OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
+  return isOpenRouterUrl(spec.baseUrl ?? "") ? "OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
 }
 
 export interface CallError {

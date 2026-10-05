@@ -30,10 +30,13 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 
 ## Behaviour and limits
 
-- The selected text is replaced by pasting. After a paste, your previous clipboard contents are restored on a best-effort basis: the restore happens after a short delay (about 0.6 s), can fail, and the confirmation says so when it does. The restore is not attempted if nothing was pasted.
+- The selected text is replaced by pasting. After a paste, your previous clipboard contents are restored on a best-effort basis: the restore happens after a short delay (about 0.6 s), can fail, and the confirmation says so when it does. The restore is not attempted if nothing was pasted, and it is skipped if you copied something else in the meantime. If you switch to another app while the request runs, nothing is pasted: the result is left on your clipboard instead.
 - Input is capped at 4,000 characters. Empty selections and over-long text show a message and nothing is pasted.
 - Any failure (no selection, bad key, rate limit, timeout, network) shows a message and leaves your text untouched.
-- Requests time out after 10 seconds.
+- Requests time out after 10 seconds. Redirects are not followed, and a response larger than 1 MB is discarded.
+- The Base URL of the OpenAI-compatible provider must be `https://` (plain `http://` only for localhost, 127.0.0.1, [::1] and `*.local`) and must not contain a username or password, because your key and text are sent there.
+- Model answers are cleaned of control, bidi, zero-width and Unicode tag characters, and an answer much longer than the input (over 4 times its length plus 500 characters) is rejected.
+- If you switch to another app while a request runs, nothing is pasted: the result is left on your clipboard.
 - The model is told to treat your text as data and to ignore instructions inside it. Models can still make mistakes, so check important text.
 - macOS only for now. Works in apps where Raycast can read the selection and paste.
 

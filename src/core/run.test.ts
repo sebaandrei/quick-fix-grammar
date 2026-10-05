@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_MAX_CHARS, InputError, runMode } from "./run";
+import { DEFAULT_MAX_CHARS, InputError, MAX_OUTPUT_RATIO, MAX_OUTPUT_SLACK_CHARS, runMode } from "./run";
 import { modes } from "./modes";
 import { ProviderError, type LLMProvider } from "./providers/types";
 
@@ -111,5 +111,33 @@ describe("runMode", () => {
   it("passes mode to sanitize (translate keeps a 'Here is' header)", async () => {
     const { provider } = mk(async () => "Here is the list:\n- a");
     await expect(runMode("translate", "Aici e lista\n- a", { provider })).resolves.toBe("Here is the list:\n- a");
+  });
+});
+
+describe("output length guard", () => {
+  const answering = (text: string): LLMProvider => ({ complete: vi.fn(async () => text) });
+  const limit = (inputLen: number) => inputLen * MAX_OUTPUT_RATIO + MAX_OUTPUT_SLACK_CHARS;
+
+  it.each(["fix-only", "fix-improve", "shorten", "tone-casual", "translate"] as const)(
+    "%s rejects an answer far longer than the input",
+    async (mode) => {
+      const input = "hello there";
+      const tooLong = "x".repeat(limit(input.length) + 1);
+      await expect(runMode(mode, input, { provider: answering(tooLong) })).rejects.toMatchObject({
+        name: "ProviderError",
+        kind: "bad_response",
+        message: expect.stringMatching(/much longer than the input/),
+      });
+    },
+  );
+
+  it("accepts an answer exactly at the limit and a normal expansion", async () => {
+    const input = "hello there";
+    await expect(
+      runMode("fix-only", input, { provider: answering("x".repeat(limit(input.length))) }),
+    ).resolves.toBeTruthy();
+    await expect(
+      runMode("translate", "Hello", { provider: answering("Bună ziua, ce mai faceți astăzi?") }),
+    ).resolves.toBeTruthy();
   });
 });

@@ -2,6 +2,10 @@ import { isModeId, modes, type ModeId, type PromptOptions } from "./modes";
 import { sanitize } from "./sanitize";
 import { ProviderError, type LLMProvider } from "./providers/types";
 
+/** A rewrite longer than input * ratio + slack is rejected (translation expands text by well under 2x). */
+export const MAX_OUTPUT_RATIO = 4;
+export const MAX_OUTPUT_SLACK_CHARS = 500;
+
 export const DEFAULT_MAX_CHARS = 4000;
 
 export interface RunOptions extends PromptOptions {
@@ -59,5 +63,9 @@ export async function runMode(modeId: ModeId, text: string, opts: RunOptions): P
   });
   const result = sanitize(raw, text, { mode: modeId });
   if (result.trim() === "") throw new ProviderError("bad_response", "Model returned no usable text");
+  if (result.length > text.length * MAX_OUTPUT_RATIO + MAX_OUTPUT_SLACK_CHARS) {
+    // A rewrite is never several times longer than its input; this is a runaway or an answer to injected text.
+    throw new ProviderError("bad_response", "The model's answer is much longer than the input, so it was not used.");
+  }
   return result;
 }
