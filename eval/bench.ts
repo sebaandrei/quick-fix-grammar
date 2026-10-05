@@ -249,7 +249,8 @@ async function main() {
     // Write after every model so a crash or Ctrl-C later in the run does not lose finished models.
     writeFileSync(jsonPath, JSON.stringify({ stamp, runs: args.runs, dryRun: args.dryRun, skipped, results }, null, 2));
   }
-  if (Object.keys(results).length === 0) throw new Error("No model could be run (missing API keys?)");
+  if (Object.keys(results).length === 0)
+    throw new Error("No model could be run (missing API keys or rejected base URLs?)");
 
   const mdPath = jsonPath.replace(/\.json$/, ".md");
   const md = renderMarkdown(stamp, args.runs, results, samples, args.dryRun, skipped);
