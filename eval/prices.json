@@ -1,0 +1,8 @@
+{
+  "_note": "USD per 1M tokens. EDIT ME: these are placeholder estimates, verify against each provider's pricing page before trusting cost numbers. Keys are bare model ids (no provider prefix).",
+  "gpt-5-mini": { "input": 0.25, "output": 2.0 },
+  "gpt-5-nano": { "input": 0.05, "output": 0.4 },
+  "claude-haiku-4-5-20251001": { "input": 1.0, "output": 5.0 },
+  "google/gemini-2.5-flash-lite": { "input": 0.1, "output": 0.4 },
+  "fake-dry-run": { "input": 0.1, "output": 0.4 }
+}

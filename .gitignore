@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+.remember
+raycast-env.d.ts
+eval/results/*
+!eval/results/.gitkeep
