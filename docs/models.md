@@ -53,7 +53,7 @@ Earlier passes (single sample or small n, not in the table):
 
 ## Decision
 
-Default for the OpenRouter and Google-endpoint paths: **Gemini 3.1 Flash-Lite** for every mode (`google/gemini-3.1-flash-lite` on OpenRouter, `gemini-3.1-flash-lite` on Google's OpenAI-compatible endpoint). Chosen over 2.5 Flash-Lite because it did not lose text on the injection sample and is a stable (not limited-access) model, at about $0.47 a month per 3,000 calls (estimate). Gemini 2.5 Flash-Lite stays the cheaper, slightly faster option (about $0.17 per 3,000 calls) if the retirement risk is acceptable.
+Default for the OpenRouter provider (the extension's default provider) and the Google-endpoint path: **Gemini 3.1 Flash-Lite** for every mode (`google/gemini-3.1-flash-lite` on OpenRouter, `gemini-3.1-flash-lite` on Google's OpenAI-compatible endpoint). Chosen over 2.5 Flash-Lite because it did not lose text on the injection sample and is a stable (not limited-access) model, at about $0.47 a month per 3,000 calls (estimate). Gemini 2.5 Flash-Lite stays the cheaper, slightly faster option (about $0.17 per 3,000 calls) if the retirement risk is acceptable.
 
 | Mode                                                    | Default model                | Why                                            | p95                                 | Cost/call (estimate) |
 | ------------------------------------------------------- | ---------------------------- | ---------------------------------------------- | ----------------------------------- | -------------------- |
@@ -65,7 +65,8 @@ Gemini 3.x prices are due to rise on 2027-01-01 (about double, per Google's pric
 
 How the default is applied:
 
-- `src/raycast/resolve.ts` (`GEMINI_OPENROUTER_MODEL`, `GEMINI_NATIVE_MODEL`, `compatibleDefaultModel`): with the OpenAI-compatible provider, an empty model resolves to the Gemini model when the base URL host is `openrouter.ai` or `generativelanguage.googleapis.com`. Other hosts still need an explicit model.
+- `src/raycast/resolve.ts` (`GEMINI_OPENROUTER_MODEL`, `GEMINI_NATIVE_MODEL`, `compatibleDefaultModel`): an empty model resolves to the Gemini model for the `openrouter` provider, and for the OpenAI-compatible provider when the base URL host is `openrouter.ai` or `generativelanguage.googleapis.com`. Other hosts still need an explicit model.
+- The `openrouter` provider (`src/core/providers/index.ts`) always posts to `https://openrouter.ai/api/v1`, ignoring the Base URL preference, and it is the manifest's default provider.
 - The OpenAI provider still defaults to `gpt-5-mini` (`OPENAI_DEFAULT_MODEL` in `src/core/modes.ts`) and Anthropic to `claude-haiku-4-5-20251001` (`ANTHROPIC_DEFAULT_MODEL`). Neither was part of this benchmark through its own API, so they are unchanged. `gpt-5-nano` (OpenAI's cheapest) is worth a direct-API run (`openai:gpt-5-nano`), not through OpenRouter, because core only sends `reasoning_effort: minimal` to OpenAI's own endpoint.
 - Per-mode defaults would need a code change in `modes.ts` (see `AGENTS.md`).
 

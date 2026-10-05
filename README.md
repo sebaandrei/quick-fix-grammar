@@ -1,6 +1,6 @@
 # Quick Fix Grammar
 
-Select text in any app, press a hotkey, and the text is fixed, shortened, re-toned or translated in place. It uses your own API key (OpenAI, Anthropic, or any OpenAI-compatible endpoint such as OpenRouter, Groq or Ollama).
+Select text in any app, press a hotkey, and the text is fixed, shortened, re-toned or translated in place. It uses your own API key (OpenRouter, OpenAI, Anthropic, or any OpenAI-compatible endpoint such as Google's, Groq or Ollama).
 
 ## Commands
 
@@ -17,14 +17,14 @@ The hotkeys are only suggestions. The extension does not set any, and I have not
 
 1. Create an API key with your provider and set a monthly spend limit there. ChatGPT Plus and Claude Pro subscriptions do **not** include API access; API usage is billed separately.
 2. Open the extension preferences in Raycast and set:
-   - **Provider**: OpenAI, Anthropic or OpenAI-compatible.
+   - **Provider**: OpenRouter (default), OpenAI, Anthropic or OpenAI-compatible.
    - **API Key**. Local endpoints such as Ollama do not check the key, but the field is required, so enter any placeholder.
-   - **Base URL**: only used with the OpenAI-compatible provider; ignored for OpenAI and Anthropic. Required for OpenAI-compatible.
-   - **Default Model**: optional. Falls back to `gpt-5-mini` (OpenAI), `claude-haiku-4-5-20251001` (Anthropic), or Gemini 3.1 Flash-Lite when the OpenAI-compatible Base URL is `https://openrouter.ai/api/v1` (`google/gemini-3.1-flash-lite`) or Google's endpoint `https://generativelanguage.googleapis.com/v1beta/openai/` (`gemini-3.1-flash-lite`). Other OpenAI-compatible hosts need an explicit model.
+   - **Base URL**: only used with the OpenAI-compatible provider, where it is required; ignored for the others (OpenRouter always uses `https://openrouter.ai/api/v1`).
+   - **Default Model**: optional. Falls back to `google/gemini-3.1-flash-lite` (OpenRouter), `gpt-5-mini` (OpenAI) or `claude-haiku-4-5-20251001` (Anthropic). The OpenAI-compatible provider also falls back to Gemini 3.1 Flash-Lite on Google's endpoint `https://generativelanguage.googleapis.com/v1beta/openai/` (`gemini-3.1-flash-lite`) and needs an explicit model for other hosts.
    - **Fix & Improve Level** (`Fix only` or `Fix + Improve`) and **English Variant** (`US` or `UK`).
 3. Optionally set a **Model Override** per command, and a **Target Language** for Translate Text.
 
-**Recommended setup:** Provider OpenAI-compatible, Base URL `https://openrouter.ai/api/v1`, your OpenRouter key, and leave Default Model empty. That uses `google/gemini-3.1-flash-lite`, which gave the best results in the benchmark (`docs/models.md`).
+**Recommended setup:** Provider OpenRouter, your OpenRouter key, and leave Default Model empty. That uses `google/gemini-3.1-flash-lite`, which gave the best results in the benchmark (`docs/models.md`).
 
 For this workload (a few hundred tokens per fix), small models should cost very little, but the cost depends on your provider's current prices and how much you use it. Treat any figure as an estimate and check the provider's pricing page. `docs/models.md` has a rough per-call estimate.
 
@@ -42,7 +42,7 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 - Your selected text is sent **only** to the provider you configure (the OpenAI or Anthropic API, or the base URL you set). It goes nowhere else, and there is no server run by this extension.
 - The extension does not log or store your text or the results, and has no analytics.
 - Reading the selection and pasting the result go through the macOS clipboard. The result is briefly on the clipboard, so the system clipboard and any clipboard manager you run may see it (and may keep it) before your previous contents are restored.
-- When the base URL is `openrouter.ai`, requests also carry OpenRouter's app-attribution headers (the app name "Quick Fix Grammar" and this project's URL, marked hidden from public rankings) so usage shows under that name in your OpenRouter dashboard. They contain no text from you and are not sent to any other host.
+- With the OpenRouter provider (or an OpenAI-compatible base URL on `openrouter.ai`), requests also carry OpenRouter's app-attribution headers (the app name "Quick Fix Grammar" and this project's URL, marked hidden from public rankings) so usage shows under that name in your OpenRouter dashboard. They contain no text from you and are not sent to any other host.
 - Error messages shown by the extension can include text from the provider's response.
 - The only thing the extension stores locally is the id of the last tone you picked in Change Tone, in Raycast's local storage.
 - Your API key is kept in Raycast's preferences (password field).

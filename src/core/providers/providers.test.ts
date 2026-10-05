@@ -402,6 +402,24 @@ describe("openai model handling", () => {
     }
   });
 
+  it("openrouter provider uses the fixed OpenRouter URL with attribution, ignoring any stale baseUrl", async () => {
+    fetchMock.mockImplementation(async () => openaiOk("x"));
+    for (const baseUrl of [undefined, "https://api.openai.com/v1", "https://evil.example/v1"]) {
+      fetchMock.mockClear();
+      await createProvider({ provider: "openrouter", apiKey: "or-key", baseUrl }).complete({
+        ...req,
+        model: "google/gemini-3.1-flash-lite",
+      });
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
+      expect(init.headers.Authorization).toBe("Bearer or-key");
+      expect(init.headers["X-OpenRouter-Title"]).toBe(APP_TITLE);
+      const body = JSON.parse(init.body);
+      expect(body.model).toBe("google/gemini-3.1-flash-lite");
+      expect(body.reasoning_effort).toBeUndefined();
+    }
+  });
+
   it("whitespace/trailing-slash official baseUrl still gets official behavior", async () => {
     fetchMock.mockResolvedValue(openaiOk("x"));
     await createProvider({ provider: "openai", apiKey: "k", baseUrl: " https://api.openai.com/v1/ " }).complete({

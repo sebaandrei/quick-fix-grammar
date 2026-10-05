@@ -57,8 +57,8 @@ export function compatibleDefaultModel(baseUrl?: string): string | undefined {
 }
 
 /**
- * command override || default model || provider fallback (Anthropic: Haiku; openai-compatible on OpenRouter
- * or Google: Gemini 3.1 Flash-Lite). undefined lets runMode use the mode default.
+ * command override || default model || provider fallback (Anthropic: Haiku; OpenRouter, and openai-compatible
+ * on OpenRouter or Google: Gemini 3.1 Flash-Lite). undefined lets runMode use the mode default.
  */
 export function modelFor(p: {
   provider?: string;
@@ -69,6 +69,7 @@ export function modelFor(p: {
   const explicit = clean(p.model) || clean(p.defaultModel);
   if (explicit) return explicit;
   if (p.provider === "anthropic") return ANTHROPIC_DEFAULT_MODEL;
+  if (p.provider === "openrouter") return GEMINI_OPENROUTER_MODEL;
   if (p.provider === "openai-compatible") return compatibleDefaultModel(p.baseUrl);
   return undefined;
 }

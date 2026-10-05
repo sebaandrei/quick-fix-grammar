@@ -6,6 +6,7 @@
  */
 export const APP_URL = "https://github.com/sebaandrei/quick-fix-grammar";
 export const APP_TITLE = "Quick Fix Grammar";
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export function isOpenRouterUrl(baseUrl: string): boolean {
   try {

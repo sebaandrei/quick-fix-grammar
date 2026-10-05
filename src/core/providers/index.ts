@@ -1,4 +1,5 @@
 import { createAnthropicProvider } from "./anthropic";
+import { OPENROUTER_BASE_URL } from "./attribution";
 import { createOpenAIProvider } from "./openai";
 import { ProviderError, type LLMProvider, type ProviderId } from "./types";
 
@@ -13,6 +14,9 @@ export interface ProviderConfig {
 
 export function createProvider(cfg: ProviderConfig): LLMProvider {
   switch (cfg.provider) {
+    case "openrouter":
+      // Fixed endpoint: a stale baseUrl preference must never redirect the key and text elsewhere.
+      return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: OPENROUTER_BASE_URL });
     case "anthropic":
       return createAnthropicProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
     case "openai-compatible":

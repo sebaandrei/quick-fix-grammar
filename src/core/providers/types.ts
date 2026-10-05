@@ -1,4 +1,4 @@
-export const PROVIDER_IDS = ["openai", "anthropic", "openai-compatible"] as const;
+export const PROVIDER_IDS = ["openrouter", "openai", "anthropic", "openai-compatible"] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export interface CompleteRequest {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { ConfigError } from "./errors";
@@ -11,6 +13,7 @@ import {
   validateConfig,
   type RawPreferences,
 } from "./resolve";
+import { PROVIDER_IDS } from "../core/providers/types";
 
 const base: RawPreferences = { provider: "openai", apiKey: "sk-test" };
 
@@ -39,6 +42,7 @@ describe("buildConfig", () => {
   it("uses baseUrl only for openai-compatible", () => {
     expect(buildConfig({ ...base, baseUrl: "https://x/v1" }).baseUrl).toBeUndefined();
     expect(buildConfig({ ...base, provider: "anthropic", baseUrl: "https://x/v1" }).baseUrl).toBeUndefined();
+    expect(buildConfig({ ...base, provider: "openrouter", baseUrl: "https://x/v1" }).baseUrl).toBeUndefined();
     expect(buildConfig({ ...base, provider: "openai-compatible", baseUrl: " https://x/v1 " }).baseUrl).toBe(
       "https://x/v1",
     );
@@ -86,6 +90,14 @@ describe("modelFor", () => {
       "m",
     );
   });
+  it("openrouter provider defaults to Gemini 3.1 Flash-Lite and ignores base URL", () => {
+    expect(modelFor({ provider: "openrouter" })).toBe("google/gemini-3.1-flash-lite");
+    expect(modelFor({ provider: "openrouter", baseUrl: "https://evil.example/v1" })).toBe(GEMINI_OPENROUTER_MODEL);
+    expect(modelFor({ provider: "openrouter", defaultModel: "mistralai/ministral-14b-2512" })).toBe(
+      "mistralai/ministral-14b-2512",
+    );
+    expect(modelFor({ provider: "openrouter", model: "x/y", defaultModel: "a/b" })).toBe("x/y");
+  });
   it("the host fallback does not apply to other providers", () => {
     expect(modelFor({ provider: "openai", baseUrl: "https://openrouter.ai/api/v1" })).toBeUndefined();
   });
@@ -110,7 +122,8 @@ describe("validateConfig", () => {
     return undefined;
   };
 
-  it("accepts openai and anthropic with a key", () => {
+  it("accepts openrouter, openai and anthropic with just a key", () => {
+    expect(kindOf(() => validateConfig(buildConfig({ ...base, provider: "openrouter" })))).toBeUndefined();
     expect(kindOf(() => validateConfig(buildConfig(base)))).toBeUndefined();
     expect(kindOf(() => validateConfig(buildConfig({ ...base, provider: "anthropic" })))).toBeUndefined();
   });
@@ -137,5 +150,16 @@ describe("levelToMode", () => {
     expect(levelToMode("fix-only")).toBe("fix-only");
     expect(levelToMode("fix-improve")).toBe("fix-improve");
     expect(levelToMode(undefined)).toBe("fix-improve");
+  });
+});
+
+describe("manifest", () => {
+  const manifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+    preferences: { name: string; default?: string; data?: { value: string }[] }[];
+  };
+  it("provider dropdown matches PROVIDER_IDS and defaults to openrouter", () => {
+    const provider = manifest.preferences.find((p) => p.name === "provider");
+    expect(provider?.data?.map((d) => d.value).sort()).toEqual([...PROVIDER_IDS].sort());
+    expect(provider?.default).toBe("openrouter");
   });
 });

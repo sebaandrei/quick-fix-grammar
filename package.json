@@ -92,9 +92,13 @@
       "type": "dropdown",
       "required": true,
       "title": "Provider",
-      "description": "Which API to send text to.",
-      "default": "openai",
+      "description": "Which API to send text to. OpenRouter (default) reaches many models, including the recommended Gemini 3.1 Flash-Lite, with one key.",
+      "default": "openrouter",
       "data": [
+        {
+          "title": "OpenRouter",
+          "value": "openrouter"
+        },
         {
           "title": "OpenAI",
           "value": "openai"
@@ -122,16 +126,16 @@
       "type": "textfield",
       "required": false,
       "title": "Base URL",
-      "description": "Only used with the OpenAI-compatible provider. Ignored for OpenAI and Anthropic.",
-      "placeholder": "https://openrouter.ai/api/v1"
+      "description": "Only used with the OpenAI-compatible provider. Ignored for OpenRouter (fixed to openrouter.ai), OpenAI and Anthropic.",
+      "placeholder": "http://localhost:11434/v1"
     },
     {
       "name": "defaultModel",
       "type": "textfield",
       "required": false,
       "title": "Default Model",
-      "description": "Leave empty to use gpt-5-mini (OpenAI), claude-haiku-4-5-20251001 (Anthropic), or google/gemini-3.1-flash-lite when the OpenAI-compatible Base URL is openrouter.ai (gemini-3.1-flash-lite for Google's endpoint). Required for other OpenAI-compatible hosts.",
-      "placeholder": "gpt-5-mini"
+      "description": "Leave empty to use google/gemini-3.1-flash-lite (OpenRouter), gpt-5-mini (OpenAI) or claude-haiku-4-5-20251001 (Anthropic). OpenAI-compatible also falls back to Gemini 3.1 Flash-Lite on Google's endpoint and needs an explicit model for other hosts.",
+      "placeholder": "google/gemini-3.1-flash-lite"
     },
     {
       "name": "level",

@@ -97,6 +97,9 @@ describe("parseModelSpec", () => {
   it("parses the three forms", () => {
     expect(parseModelSpec("openai:gpt-5-mini")).toMatchObject({ provider: "openai", model: "gpt-5-mini" });
     expect(parseModelSpec("anthropic:claude-haiku-4-5-20251001").provider).toBe("anthropic");
+    const or = parseModelSpec("openrouter:google/gemini-3.1-flash-lite");
+    expect(or).toMatchObject({ provider: "openrouter", model: "google/gemini-3.1-flash-lite" });
+    expect(envKeyFor(or)).toBe("OPENROUTER_API_KEY");
     const c = parseModelSpec("openai-compatible@https://openrouter.ai/api/v1:google/gemini-2.5-flash-lite");
     expect(c).toMatchObject({ baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash-lite" });
     expect(envKeyFor(c)).toBe("OPENROUTER_API_KEY");

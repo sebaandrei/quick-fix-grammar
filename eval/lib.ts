@@ -141,15 +141,15 @@ export interface ModelSpec {
 }
 
 /**
- * Parses `openai:gpt-5-mini`, `anthropic:claude-haiku-4-5-20251001` or
+ * Parses `openrouter:google/gemini-3.1-flash-lite`, `openai:gpt-5-mini`, `anthropic:claude-haiku-4-5-20251001` or
  * `openai-compatible@https://openrouter.ai/api/v1:google/gemini-2.5-flash-lite`.
  */
 export function parseModelSpec(raw: string): ModelSpec {
   const s = raw.trim();
   const compat = /^openai-compatible@(https?:\/\/[^/:\s]+(?::\d+)?(?:\/[^:\s]*)?):(.+)$/.exec(s);
   if (compat) return { provider: "openai-compatible", baseUrl: compat[1], model: compat[2], label: s };
-  const plain = /^(openai|anthropic):(.+)$/.exec(s);
-  if (plain) return { provider: plain[1] as "openai" | "anthropic", model: plain[2], label: s };
+  const plain = /^(openrouter|openai|anthropic):(.+)$/.exec(s);
+  if (plain) return { provider: plain[1] as "openrouter" | "openai" | "anthropic", model: plain[2], label: s };
   throw new Error(`Invalid model spec: "${raw}"`);
 }
 
@@ -162,6 +162,7 @@ export function parseModelList(list: string): ModelSpec[] {
 }
 
 export function envKeyFor(spec: ModelSpec): string {
+  if (spec.provider === "openrouter") return "OPENROUTER_API_KEY";
   if (spec.provider === "openai") return "OPENAI_API_KEY";
   if (spec.provider === "anthropic") return "ANTHROPIC_API_KEY";
   let host = "";
