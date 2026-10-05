@@ -1,5 +1,6 @@
 import { createAnthropicProvider } from "./anthropic";
 import { OPENROUTER_BASE_URL } from "./attribution";
+import { BASE_URL_PROBLEM_MESSAGES, baseUrlProblem } from "./base-url";
 import { createOpenAIProvider } from "./openai";
 import { ProviderError, type LLMProvider, type ProviderId } from "./types";
 
@@ -24,6 +25,10 @@ export function createProvider(cfg: ProviderConfig): LLMProvider {
     case "openai-compatible":
       if (!cfg.baseUrl?.trim()) {
         throw new ProviderError("request", "Base URL is required for OpenAI-compatible providers");
+      }
+      {
+        const problem = baseUrlProblem(cfg.baseUrl);
+        if (problem) throw new ProviderError("request", BASE_URL_PROBLEM_MESSAGES[problem]);
       }
       return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
     default: {

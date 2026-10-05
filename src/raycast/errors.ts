@@ -21,7 +21,8 @@ export class SelectionReadError extends Error {
   }
 }
 
-export type ConfigErrorKind = "unknown_provider" | "missing_api_key" | "missing_base_url" | "missing_model";
+export type ConfigErrorKind =
+  "unknown_provider" | "bad_base_url" | "missing_api_key" | "missing_base_url" | "missing_model";
 
 export class ConfigError extends Error {
   readonly kind: ConfigErrorKind;
@@ -37,6 +38,11 @@ const CONFIG_MESSAGES: Record<ConfigErrorKind, UserMessage> = {
   unknown_provider: {
     title: "Provider not set",
     message: "The Provider preference has an unknown value. Choose a provider in the extension preferences.",
+  },
+  bad_base_url: {
+    title: "Base URL not allowed",
+    message:
+      "The Base URL must be https:// (http:// only for localhost, 127.0.0.1, [::1] or *.local) and have no username or password.",
   },
   missing_api_key: {
     title: "API key missing",

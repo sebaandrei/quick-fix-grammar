@@ -135,6 +135,16 @@ describe("validateConfig", () => {
     expect(kindOf(() => validateConfig(buildConfig({ ...base, apiKey: "   " })))).toBe("missing_api_key");
     expect(kindOf(() => validateConfig(buildConfig({ provider: "openai" })))).toBe("missing_api_key");
   });
+  it("openai-compatible rejects an unsafe base URL", () => {
+    for (const baseUrl of ["http://api.openai.com/v1", "http://192.168.1.5/v1", "https://u:p@x.example/v1", "nope"]) {
+      const c = buildConfig({ ...base, provider: "openai-compatible", baseUrl });
+      expect(kindOf(() => validateConfig(c, "m"))).toBe("bad_base_url");
+    }
+    for (const baseUrl of ["https://x.example/v1", "http://localhost:11434/v1", "http://[::1]:8000/v1"]) {
+      const c = buildConfig({ ...base, provider: "openai-compatible", baseUrl });
+      expect(kindOf(() => validateConfig(c, "m"))).toBeUndefined();
+    }
+  });
   it("openai-compatible requires baseUrl then model", () => {
     const c = buildConfig({ ...base, provider: "openai-compatible" });
     expect(kindOf(() => validateConfig(c, "m"))).toBe("missing_base_url");

@@ -389,7 +389,7 @@ describe("openai model handling", () => {
 
   it("never sends reasoning_effort to non-official endpoints", async () => {
     fetchMock.mockResolvedValue(openaiOk("x"));
-    await createProvider({ provider: "openai-compatible", apiKey: "k", baseUrl: "http://x/v1" }).complete({
+    await createProvider({ provider: "openai-compatible", apiKey: "k", baseUrl: "https://x.example/v1" }).complete({
       ...req,
       model: "gpt-5-mini",
     });
@@ -486,6 +486,35 @@ describe("openai model handling", () => {
       model: "claude-haiku-4-5-20251001",
     });
     expect(fetchMock.mock.calls[1][0]).toBe("https://api.anthropic.com/v1/messages");
+  });
+
+  it.each(["http://api.openai.com/v1", "http://192.168.1.5:8000/v1", "https://u:p@example.com/v1", "example.com"])(
+    "openai-compatible rejects an unsafe base URL (%s) before any request",
+    (baseUrl) => {
+      expect(() => createProvider({ provider: "openai-compatible", apiKey: "k", baseUrl })).toThrow(
+        expect.objectContaining({ name: "ProviderError", kind: "request" }),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("never follows redirects (the text and key must not be forwarded)", async () => {
+    fetchMock.mockResolvedValue(openaiOk("x"));
+    await createProvider({ provider: "openrouter", apiKey: "k" }).complete({ ...req, model: "m" });
+    await createProvider({ provider: "anthropic", apiKey: "k" })
+      .complete({ ...req, model: "m" })
+      .catch(() => undefined);
+    for (const call of fetchMock.mock.calls) expect(call[1].redirect).toBe("error");
+  });
+
+  it("a blocked redirect is a clear network error", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed", { cause: new Error("unexpected redirect") }));
+    await expect(
+      createProvider({ provider: "openrouter", apiKey: "k" }).complete({ ...req, model: "m" }),
+    ).rejects.toMatchObject({
+      kind: "network",
+      message: expect.stringMatching(/redirect.*blocked/i),
+    });
   });
 
   it("an unknown provider value throws a clear error instead of returning undefined", () => {

@@ -21,6 +21,12 @@ export function errorForStatus(status: number, detail: string): ProviderError {
   return new ProviderError("bad_response", `Request failed with status ${status}. ${d}`.trim(), status);
 }
 
+/** undici reports `redirect: "error"` as a TypeError ("fetch failed") whose cause says "unexpected redirect". */
+function isRedirectError(e: unknown): boolean {
+  const text = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  return /redirect/i.test(text(e)) || (e instanceof Error && /redirect/i.test(text(e.cause)));
+}
+
 function abortError(timedOut: boolean, cause: unknown): ProviderError {
   return timedOut
     ? new ProviderError("timeout", "Request timed out.", undefined, { cause })
@@ -59,10 +65,20 @@ export async function postJson(
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(body),
         signal: controller.signal,
+        // No LLM API needs a POST redirect, and following one could forward the text (and the key) elsewhere.
+        redirect: "error",
       });
     } catch (e) {
       if (controller.signal.aborted || (e instanceof Error && e.name === "AbortError")) {
         throw abortError(timedOut, e);
+      }
+      if (isRedirectError(e)) {
+        throw new ProviderError(
+          "network",
+          "The provider tried to redirect the request, which is blocked for safety. Check the Base URL.",
+          undefined,
+          { cause: e },
+        );
       }
       throw new ProviderError("network", `Network error: ${e instanceof Error ? e.message : String(e)}`, undefined, {
         cause: e,
