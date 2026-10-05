@@ -30,7 +30,7 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 
 ## Behaviour and limits
 
-- The selected text is replaced by pasting. After a paste, your previous clipboard contents are restored on a best-effort basis: the restore happens after a short delay (about 0.6 s), can fail, and the confirmation says so when it does. The restore is not attempted if nothing was pasted.
+- The selected text is replaced by pasting. After a paste, your previous clipboard contents are restored on a best-effort basis: the restore happens after a short delay (about 0.6 s), can fail, and the confirmation says so when it does. The restore is not attempted if nothing was pasted, and it is skipped if you copied something else in the meantime. If you switch to another app while the request runs, nothing is pasted: the result is left on your clipboard instead.
 - Input is capped at 4,000 characters. Empty selections and over-long text show a message and nothing is pasted.
 - Any failure (no selection, bad key, rate limit, timeout, network) shows a message and leaves your text untouched.
 - Requests time out after 10 seconds.

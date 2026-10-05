@@ -115,12 +115,31 @@ export async function replaceSelection(
     await deps.paste(result);
   } finally {
     // Reached whether or not paste threw: a paste was attempted, so the clipboard may have changed.
-    restored = snapshot ? await restoreClipboard(deps, snapshot) : false;
+    restored = snapshot ? await restoreClipboard(deps, snapshot, result) : false;
   }
   return restored ? "replaced" : "replaced_clipboard_not_restored";
 }
 
-async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): Promise<boolean> {
+const sameText = (a?: string, b?: string) => (a ?? "").trim() === (b ?? "").trim();
+
+/**
+ * True when the clipboard now holds something the user copied during the delay: it has content and that content
+ * is neither our pasted result nor the original snapshot. Restoring over it would lose their newer copy.
+ */
+async function userCopiedSomethingNew(deps: SelectionDeps, snap: ClipboardSnapshot, result: string): Promise<boolean> {
+  try {
+    const now = await deps.readClipboard();
+    const hasContent = Boolean(now.text?.trim() || now.html || now.file);
+    const sameFile = (now.file ?? "") === (snap.file ?? "");
+    const isResult = sameText(now.text, result) && !now.file;
+    const isSnapshot = sameText(now.text, snap.text) && sameFile;
+    return hasContent && !isResult && !isSnapshot;
+  } catch {
+    return false; // cannot tell: keep the previous behavior and restore
+  }
+}
+
+async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot, result: string): Promise<boolean> {
   try {
     // An empty snapshot is ambiguous: the clipboard was empty, or held something we cannot read back
     // (an image, rich text). Either way there is nothing we can restore, so never clear (that would
@@ -128,6 +147,8 @@ async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): P
     const content = contentFor(snap);
     if (!content) return false;
     await deps.sleep(RESTORE_DELAY_MS);
+    // Their newer copy wins; nothing is left to restore, so this still counts as done.
+    if (await userCopiedSomethingNew(deps, snap, result)) return true;
     await deps.copy(content, { concealed: true });
     return true;
   } catch (err) {

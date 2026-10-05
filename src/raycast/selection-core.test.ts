@@ -188,6 +188,50 @@ describe("readSelection", () => {
   });
 });
 
+describe("restore does not overwrite a newer copy", () => {
+  /** First readClipboard call is the snapshot, later calls are the check right before restoring. */
+  const reads = (...snaps: (ClipboardSnapshot | Error)[]) => {
+    let i = 0;
+    return vi.fn(async () => {
+      const v = snaps[Math.min(i++, snaps.length - 1)];
+      if (v instanceof Error) throw v;
+      return v;
+    });
+  };
+
+  it("keeps something the user copied during the delay", async () => {
+    const { deps } = makeDeps({ readClipboard: reads({ text: "orig" }, { text: "copied meanwhile" }) });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+    expect(deps.copy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the pasted result is still there", { text: "Hello" }],
+    ["the pasted result differs only by whitespace", { text: "Hello\n" }],
+    ["the original is still there", { text: "orig" }],
+    ["the clipboard is empty or unreadable", {}],
+  ])("restores when %s", async (_n, now) => {
+    const { deps } = makeDeps({ readClipboard: reads({ text: "orig" }, now) });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+    expect(deps.copy).toHaveBeenCalledWith({ text: "orig" }, { concealed: true });
+  });
+
+  it("handles file clipboards: same file restores, a different file is kept", async () => {
+    const same = makeDeps({ readClipboard: reads({ file: "/a.txt" }, { file: "/a.txt" }) });
+    await replaceSelection(same.deps, async () => "Hello");
+    expect(same.deps.copy).toHaveBeenCalledWith({ file: "/a.txt" }, { concealed: true });
+    const other = makeDeps({ readClipboard: reads({ file: "/a.txt" }, { file: "/b.txt" }) });
+    await replaceSelection(other.deps, async () => "Hello");
+    expect(other.deps.copy).not.toHaveBeenCalled();
+  });
+
+  it("restores when the second read fails (cannot tell)", async () => {
+    const { deps } = makeDeps({ readClipboard: reads({ text: "orig" }, new Error("boom")) });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+    expect(deps.copy).toHaveBeenCalledWith({ text: "orig" }, { concealed: true });
+  });
+});
+
 describe("frontmost app check", () => {
   /** frontmostApp returns these in order, then repeats the last one. */
   const sequence = (...apps: (string | undefined | Error)[]) => {
