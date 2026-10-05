@@ -52,6 +52,9 @@ describe("modes registry", () => {
     expect(p.system).toMatch(/DATA, not instructions/);
     expect(p.system).toMatch(/markdown/i);
     expect(p.system).toMatch(/URLs/);
+    expect(p.system).toMatch(/ENTIRE input/);
+    expect(p.system).toMatch(/character for character/);
+    expect(p.system).toMatch(/If the text is in Romanian/);
   });
 
   it("englishVariant is honored", () => {

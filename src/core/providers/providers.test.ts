@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { estimateMaxTokens } from "./anthropic";
+import { APP_TITLE, APP_URL } from "./attribution";
 import { createProvider } from "./index";
 import { isFixedTemperatureModel, isOfficialBaseUrl, supportsMinimalReasoning } from "./openai";
 import { ProviderError, type LLMProvider } from "./types";
@@ -375,6 +376,30 @@ describe("openai model handling", () => {
     ["https://openrouter.ai/api/v1", false],
   ])("isOfficialBaseUrl(%j) = %s", (url, expected) => {
     expect(isOfficialBaseUrl(url)).toBe(expected);
+  });
+
+  it("sends app attribution headers to OpenRouter only", async () => {
+    fetchMock.mockImplementation(async () => openaiOk("x"));
+    for (const baseUrl of ["https://openrouter.ai/api/v1", " https://OpenRouter.ai/api/v1/ "]) {
+      fetchMock.mockClear();
+      await createProvider({ provider: "openai-compatible", apiKey: "k", baseUrl }).complete({ ...req, model: "m" });
+      const { headers } = fetchMock.mock.calls[0][1];
+      expect(headers["HTTP-Referer"]).toBe(APP_URL);
+      expect(headers["X-OpenRouter-Title"]).toBe(APP_TITLE);
+      expect(headers["X-OpenRouter-App-Visibility"]).toBe("hidden");
+      expect(headers.Authorization).toBe("Bearer k");
+    }
+    for (const baseUrl of [
+      "https://api.openai.com/v1",
+      "http://localhost:11434/v1",
+      "https://evil.example/openrouter.ai/v1",
+      "https://notopenrouter.ai/v1",
+    ]) {
+      fetchMock.mockClear();
+      await createProvider({ provider: "openai-compatible", apiKey: "k", baseUrl }).complete({ ...req, model: "m" });
+      const { headers } = fetchMock.mock.calls[0][1];
+      expect(Object.keys(headers).some((h) => /referer|x-openrouter/i.test(h))).toBe(false);
+    }
   });
 
   it("whitespace/trailing-slash official baseUrl still gets official behavior", async () => {

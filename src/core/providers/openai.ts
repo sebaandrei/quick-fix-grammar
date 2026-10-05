@@ -1,3 +1,4 @@
+import { attributionHeaders } from "./attribution";
 import { joinUrl, postJson } from "./http";
 import { ProviderError, type CompleteRequest, type LLMProvider } from "./types";
 
@@ -47,7 +48,7 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
 
       const json = (await postJson(
         joinUrl(baseUrl, "chat/completions"),
-        { Authorization: `Bearer ${cfg.apiKey}` },
+        { Authorization: `Bearer ${cfg.apiKey}`, ...attributionHeaders(baseUrl) },
         body,
         req.signal,
       )) as OpenAIResponse | null;

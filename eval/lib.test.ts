@@ -147,6 +147,12 @@ describe("parseBenchArgs", () => {
       filter: ["x", "y"],
     });
   });
+  it("parses --delay (default 0) and rejects bad values", () => {
+    expect(parse("--dry-run").delay).toBe(0);
+    expect(parse("--delay", "1500").delay).toBe(1500);
+    for (const bad of ["-1", "abc", "1.5", ""]) expect(() => parse("--delay", bad)).toThrow(/--delay/);
+    expect(() => parse("--delay")).toThrow(/Missing value/);
+  });
   it("rejects bad --runs, missing values and unknown flags", () => {
     for (const bad of ["0", "-1", "abc", "2.5", "3x", ""]) expect(() => parse("--runs", bad)).toThrow(/--runs/);
     expect(() => parse("--runs")).toThrow(/Missing value/);

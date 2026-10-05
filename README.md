@@ -4,12 +4,12 @@ Select text in any app, press a hotkey, and the text is fixed, shortened, re-ton
 
 ## Commands
 
-| Command | What it does | Suggested hotkey |
-|---|---|---|
-| **Fix and Improve Text** | Fixes spelling and grammar and lightly polishes. The **Fix & Improve Level** preference switches between `Fix only` (minimal edits) and `Fix + Improve` (default). | `⇧ ⇧` (double Right Shift) |
-| **Shorten Text** | Makes the text more concise and keeps the meaning. | `⌥ ⌥` |
-| **Change Tone** | Pick Professional, Friendly, Casual, Confident or Direct. The last tone you used is listed first. | `⌃ ⌥ T` |
-| **Translate Text** | Without a target language, English text is translated to Romanian and any other language is translated to English. With a **Target Language** set, translates into that language. | `⌃ ⌥ L` |
+| Command                  | What it does                                                                                                                                                                      | Suggested hotkey           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| **Fix and Improve Text** | Fixes spelling and grammar and lightly polishes. The **Fix & Improve Level** preference switches between `Fix only` (minimal edits) and `Fix + Improve` (default).                | `⇧ ⇧` (double Right Shift) |
+| **Shorten Text**         | Makes the text more concise and keeps the meaning.                                                                                                                                | `⌥ ⌥`                      |
+| **Change Tone**          | Pick Professional, Friendly, Casual, Confident or Direct. The last tone you used is listed first.                                                                                 | `⌃ ⌥ T`                    |
+| **Translate Text**       | Without a target language, English text is translated to Romanian and any other language is translated to English. With a **Target Language** set, translates into that language. | `⌃ ⌥ L`                    |
 
 The hotkeys are only suggestions. The extension does not set any, and I have not verified that Raycast accepts a double-tap of a modifier key (`⇧ ⇧`, `⌥ ⌥`) as a hotkey. If it does not, pick another combination. Assign them in Raycast: Settings → Extensions → Quick Fix Grammar. If a hotkey clashes with a built-in Raycast command, turn that one off.
 
@@ -20,9 +20,11 @@ The hotkeys are only suggestions. The extension does not set any, and I have not
    - **Provider**: OpenAI, Anthropic or OpenAI-compatible.
    - **API Key**. Local endpoints such as Ollama do not check the key, but the field is required, so enter any placeholder.
    - **Base URL**: only used with the OpenAI-compatible provider; ignored for OpenAI and Anthropic. Required for OpenAI-compatible.
-   - **Default Model**: optional for OpenAI (`gpt-5-mini`) and Anthropic (`claude-haiku-4-5-20251001`). Required for OpenAI-compatible.
+   - **Default Model**: optional. Falls back to `gpt-5-mini` (OpenAI), `claude-haiku-4-5-20251001` (Anthropic), or Gemini 3.1 Flash-Lite when the OpenAI-compatible Base URL is `https://openrouter.ai/api/v1` (`google/gemini-3.1-flash-lite`) or Google's endpoint `https://generativelanguage.googleapis.com/v1beta/openai/` (`gemini-3.1-flash-lite`). Other OpenAI-compatible hosts need an explicit model.
    - **Fix & Improve Level** (`Fix only` or `Fix + Improve`) and **English Variant** (`US` or `UK`).
 3. Optionally set a **Model Override** per command, and a **Target Language** for Translate Text.
+
+**Recommended setup:** Provider OpenAI-compatible, Base URL `https://openrouter.ai/api/v1`, your OpenRouter key, and leave Default Model empty. That uses `google/gemini-3.1-flash-lite`, which gave the best results in the benchmark (`docs/models.md`).
 
 For this workload (a few hundred tokens per fix), small models should cost very little, but the cost depends on your provider's current prices and how much you use it. Treat any figure as an estimate and check the provider's pricing page. `docs/models.md` has a rough per-call estimate.
 
@@ -40,6 +42,7 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 - Your selected text is sent **only** to the provider you configure (the OpenAI or Anthropic API, or the base URL you set). It goes nowhere else, and there is no server run by this extension.
 - The extension does not log or store your text or the results, and has no analytics.
 - Reading the selection and pasting the result go through the macOS clipboard. The result is briefly on the clipboard, so the system clipboard and any clipboard manager you run may see it (and may keep it) before your previous contents are restored.
+- When the base URL is `openrouter.ai`, requests also carry OpenRouter's app-attribution headers (the app name "Quick Fix Grammar" and this project's URL, marked hidden from public rankings) so usage shows under that name in your OpenRouter dashboard. They contain no text from you and are not sent to any other host.
 - Error messages shown by the extension can include text from the provider's response.
 - The only thing the extension stores locally is the id of the last tone you picked in Change Tone, in Raycast's local storage.
 - Your API key is kept in Raycast's preferences (password field).

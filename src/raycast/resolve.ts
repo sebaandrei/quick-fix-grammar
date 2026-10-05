@@ -1,5 +1,6 @@
 import type { EnglishVariant, ModeId } from "../core/modes";
 import type { ProviderId } from "../core/providers/types";
+import { isOpenRouterUrl } from "../core/providers/attribution";
 import { ConfigError } from "./errors";
 
 export interface ExtensionConfig {
@@ -37,9 +38,39 @@ export function buildConfig(p: RawPreferences): ExtensionConfig {
   };
 }
 
-/** command override || default model || Anthropic fallback; undefined lets runMode use the mode default. */
-export function modelFor(p: { provider?: string; model?: string; defaultModel?: string }): string | undefined {
-  return clean(p.model) || clean(p.defaultModel) || (p.provider === "anthropic" ? ANTHROPIC_DEFAULT_MODEL : undefined);
+/** Recommended model (docs/models.md): Gemini 3.1 Flash-Lite, named differently by each host. */
+export const GEMINI_OPENROUTER_MODEL = "google/gemini-3.1-flash-lite";
+export const GEMINI_NATIVE_MODEL = "gemini-3.1-flash-lite";
+const GOOGLE_OPENAI_HOST = "generativelanguage.googleapis.com";
+
+/** Fallback for the openai-compatible provider when the base URL is a host with a known recommended model. */
+export function compatibleDefaultModel(baseUrl?: string): string | undefined {
+  const url = clean(baseUrl);
+  if (!url) return undefined;
+  if (isOpenRouterUrl(url)) return GEMINI_OPENROUTER_MODEL;
+  try {
+    if (new URL(url).hostname.toLowerCase() === GOOGLE_OPENAI_HOST) return GEMINI_NATIVE_MODEL;
+  } catch {
+    // not a URL: no fallback
+  }
+  return undefined;
+}
+
+/**
+ * command override || default model || provider fallback (Anthropic: Haiku; openai-compatible on OpenRouter
+ * or Google: Gemini 3.1 Flash-Lite). undefined lets runMode use the mode default.
+ */
+export function modelFor(p: {
+  provider?: string;
+  model?: string;
+  defaultModel?: string;
+  baseUrl?: string;
+}): string | undefined {
+  const explicit = clean(p.model) || clean(p.defaultModel);
+  if (explicit) return explicit;
+  if (p.provider === "anthropic") return ANTHROPIC_DEFAULT_MODEL;
+  if (p.provider === "openai-compatible") return compatibleDefaultModel(p.baseUrl);
+  return undefined;
 }
 
 export function targetLanguageFor(p: { targetLanguage?: string }): string | undefined {

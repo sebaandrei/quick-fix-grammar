@@ -1,18 +1,15 @@
-import {
-  Clipboard,
-  PopToRootType,
-  Toast,
-  closeMainWindow,
-  getSelectedText,
-  showHUD,
-  showToast,
-} from "@raycast/api";
+import { Clipboard, PopToRootType, Toast, closeMainWindow, getSelectedText, showHUD, showToast } from "@raycast/api";
 import type { ModeId } from "../core/modes";
 import { createProvider } from "../core/providers";
 import { DEFAULT_MAX_CHARS, runMode } from "../core/run";
 import { toUserMessage } from "./errors";
 import { getExtensionConfig, validateConfig } from "./preferences";
-import { hudFor, labelsFor, readSelection as readSelectionWith, replaceSelection as replaceWith } from "./selection-core";
+import {
+  hudFor,
+  labelsFor,
+  readSelection as readSelectionWith,
+  replaceSelection as replaceWith,
+} from "./selection-core";
 import type { SelectionDeps } from "./selection-core";
 
 const deps: SelectionDeps = {

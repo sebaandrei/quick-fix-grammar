@@ -1,8 +1,87 @@
 {
-  "_note": "USD per 1M tokens. EDIT ME: these are placeholder estimates, verify against each provider's pricing page before trusting cost numbers. Keys are bare model ids (no provider prefix).",
-  "gpt-5-mini": { "input": 0.25, "output": 2.0 },
-  "gpt-5-nano": { "input": 0.05, "output": 0.4 },
-  "claude-haiku-4-5-20251001": { "input": 1.0, "output": 5.0 },
-  "google/gemini-2.5-flash-lite": { "input": 0.1, "output": 0.4 },
-  "fake-dry-run": { "input": 0.1, "output": 0.4 }
+  "_note": "USD per 1M tokens. Keys are bare model ids (no provider prefix). Sources: Anthropic and Google pricing pages (OpenAI-direct and Gemini ids) and OpenRouter's public /api/v1/models list (OpenRouter-style ids with a vendor/ prefix), checked 2026-10-05. OpenRouter prices are the lowest listed provider and vary by provider; re-check before trusting cost numbers. Gemini 3.x prices rise on 2027-01-01.",
+  "gpt-5-mini": {
+    "input": 0.25,
+    "output": 2.0
+  },
+  "gpt-5-nano": {
+    "input": 0.05,
+    "output": 0.4
+  },
+  "gpt-4.1-nano": {
+    "input": 0.1,
+    "output": 0.4
+  },
+  "claude-haiku-4-5-20251001": {
+    "input": 1.0,
+    "output": 5.0
+  },
+  "google/gemini-2.5-flash-lite": {
+    "input": 0.1,
+    "output": 0.4
+  },
+  "google/gemini-3.1-flash-lite": {
+    "input": 0.25,
+    "output": 1.5
+  },
+  "openai/gpt-oss-120b": {
+    "input": 0.037,
+    "output": 0.17
+  },
+  "openai/gpt-oss-20b": {
+    "input": 0.018,
+    "output": 0.09
+  },
+  "deepseek/deepseek-v4-flash": {
+    "input": 0.09,
+    "output": 0.18
+  },
+  "deepseek/deepseek-v3.2": {
+    "input": 0.26,
+    "output": 0.38
+  },
+  "qwen/qwen3.7-flash": {
+    "input": 0.03,
+    "output": 0.13
+  },
+  "mistralai/mistral-small-2603": {
+    "input": 0.15,
+    "output": 0.6
+  },
+  "mistralai/ministral-14b-2512": {
+    "input": 0.2,
+    "output": 0.2
+  },
+  "z-ai/glm-5.3-flash": {
+    "input": 0.15,
+    "output": 0.5
+  },
+  "minimax/minimax-m2.7": {
+    "input": 0.21,
+    "output": 0.84
+  },
+  "moonshotai/kimi-k2-0905": {
+    "input": 0.6,
+    "output": 2.5
+  },
+  "meta-llama/llama-3.3-70b-instruct": {
+    "input": 0.1,
+    "output": 0.32
+  },
+  "fake-dry-run": {
+    "input": 0.1,
+    "output": 0.4
+  },
+  "openai/gpt-4.1-nano": {
+    "input": 0.1,
+    "output": 0.4
+  },
+  "openai/gpt-5-nano": {
+    "input": 0.05,
+    "output": 0.4
+  },
+  "anthropic/claude-haiku-4.5": {
+    "input": 1.0,
+    "output": 5.0
+  }
 }

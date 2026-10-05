@@ -304,10 +304,12 @@ export interface BenchArgs {
   filter: string[];
   dryRun: boolean;
   out: string;
+  /** Milliseconds to wait before each call (0 = none). */
+  delay: number;
 }
 
 export function parseBenchArgs(argv: string[], defaultOut: string): BenchArgs {
-  const a: BenchArgs = { models: "", runs: 3, filter: [], dryRun: false, out: defaultOut };
+  const a: BenchArgs = { models: "", runs: 3, filter: [], dryRun: false, out: defaultOut, delay: 0 };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
     const value = (): string => {
@@ -322,6 +324,11 @@ export function parseBenchArgs(argv: string[], defaultOut: string): BenchArgs {
       const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
       if (!Number.isSafeInteger(n) || n < 1) throw new Error(`--runs must be a positive integer, got "${raw}"`);
       a.runs = n;
+    } else if (v === "--delay") {
+      const raw = value();
+      const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+      if (!Number.isSafeInteger(n)) throw new Error(`--delay must be a non-negative integer (ms), got "${raw}"`);
+      a.delay = n;
     } else if (v === "--filter") a.filter = value().split(",").filter(Boolean);
     else if (v === "--out") a.out = value();
     else if (!v.startsWith("--")) a.models = v;

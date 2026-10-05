@@ -4,6 +4,7 @@ import { ConfigError } from "./errors";
 import {
   ANTHROPIC_DEFAULT_MODEL,
   buildConfig,
+  GEMINI_OPENROUTER_MODEL,
   levelToMode,
   modelFor,
   targetLanguageFor,
@@ -66,6 +67,27 @@ describe("modelFor", () => {
   });
   it("anthropic default model beats fallback", () => {
     expect(modelFor({ provider: "anthropic", defaultModel: "claude-x" })).toBe("claude-x");
+  });
+  it("openai-compatible falls back to Gemini 3.1 Flash-Lite on OpenRouter and Google hosts", () => {
+    const p = "openai-compatible";
+    expect(modelFor({ provider: p, baseUrl: "https://openrouter.ai/api/v1" })).toBe("google/gemini-3.1-flash-lite");
+    expect(modelFor({ provider: p, baseUrl: " https://OpenRouter.ai/api/v1/ " })).toBe(GEMINI_OPENROUTER_MODEL);
+    expect(modelFor({ provider: p, baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/" })).toBe(
+      "gemini-3.1-flash-lite",
+    );
+  });
+  it("openai-compatible has no fallback for other hosts, and an explicit model always wins", () => {
+    const p = "openai-compatible";
+    for (const baseUrl of ["http://localhost:11434/v1", "https://evil.example/openrouter.ai/v1", "not a url", ""]) {
+      expect(modelFor({ provider: p, baseUrl })).toBeUndefined();
+    }
+    expect(modelFor({ provider: p, baseUrl: "https://openrouter.ai/api/v1", defaultModel: "x/y" })).toBe("x/y");
+    expect(modelFor({ provider: p, baseUrl: "https://openrouter.ai/api/v1", model: "m", defaultModel: "x/y" })).toBe(
+      "m",
+    );
+  });
+  it("the host fallback does not apply to other providers", () => {
+    expect(modelFor({ provider: "openai", baseUrl: "https://openrouter.ai/api/v1" })).toBeUndefined();
   });
 });
 

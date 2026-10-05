@@ -1,27 +1,23 @@
 # Model selection (T17)
 
-> **TEMPLATE: delete this banner when the results below are filled in.**
-> Status: not yet benchmarked. Fill in after running the benchmark with real API keys.
+> Status: decided 2026-10-05 (Gemini 3.1 Flash-Lite). Based on small benchmark runs (2 runs of 51 samples per model, 3 runs of the 100-word Fix sample in the first pass), so treat close calls as noise and re-run when a model or price changes.
 
 ## How to run
 
 ```bash
-export OPENAI_API_KEY=...
-export ANTHROPIC_API_KEY=...
-export OPENROUTER_API_KEY=...          # OpenRouter base URLs
+export OPENROUTER_API_KEY=...          # OpenRouter base URLs (one key reaches most models)
+# export OPENAI_API_KEY=... ANTHROPIC_API_KEY=...   # direct OpenAI / Anthropic
 # export OPENAI_COMPATIBLE_API_KEY=... # any other openai-compatible base URL
-npx tsx eval/bench.ts \
-  --models "openai:gpt-5-mini,openai:gpt-5-nano,anthropic:claude-haiku-4-5-20251001,openai-compatible@https://openrouter.ai/api/v1:google/gemini-2.5-flash-lite" \
-  --runs 5
+R=openai-compatible@https://openrouter.ai/api/v1
+npm run bench -- --runs 2 --models "$R:google/gemini-3.1-flash-lite,$R:google/gemini-2.5-flash-lite"
+npm run bench -- --runs 3 --filter latency-ac --models "$R:<model>,..."   # quick latency-only filter
 ```
 
 Models whose key is missing are skipped and listed in the report header. A model run stops early after 3 consecutive auth or request errors (bad key, wrong model name).
 
 Results land in `eval/results/<timestamp>.json` and `.md`: a summary table, then the run-1 output of every sample for every model.
 
-Cost is **always an estimate**: the bench has no provider usage data, so tokens are characters / 4 (system prompt plus user text in, output text out), multiplied by the prices in `eval/prices.json`. Those prices are placeholders; edit them first and verify against each provider's pricing page. Models without an entry show `n/a`.
-
-Bench date: `YYYY-MM-DD`. Results file: `eval/results/<timestamp>.json`. Runs per sample: `N`.
+Cost is **always an estimate**: the bench has no provider usage data, so tokens are characters / 4 (system prompt plus user text in, output text out) and reasoning tokens are not counted, multiplied by the prices in `eval/prices.json` (taken from provider pricing pages and OpenRouter on 2026-10-05; re-check before relying on them). Models without an entry show `n/a`. Rate-limited (429) calls are retried with backoff (`--delay <ms>` adds a pause before every call).
 
 ## Acceptance criterion
 
@@ -33,36 +29,54 @@ Fix mode, ~100-word input (sample `long-fix-en`, tag `latency-ac`): **p95 latenc
 
 ## Results
 
-Paste the summary table from the bench output (the model column is the exact `--models` entry):
+All through OpenRouter, 51 samples, 2 runs each (bench 2026-10-05, after the shared-prompt fixes for translation drift, dropped text and code fidelity). Results files are gitignored (`eval/results/`).
 
-| Model | Pass rate | p50 | p95 | p95 (100-word Fix) | Mean cost/call | Errors | Failing checks |
-|---|---|---|---|---|---|---|---|
-| openai:gpt-5-mini | | | | | | | |
-| openai:gpt-5-nano | | | | | | | |
-| anthropic:claude-haiku-4-5-20251001 | | | | | | | |
-| openai-compatible@https://openrouter.ai/api/v1:google/gemini-2.5-flash-lite | | | | | | | |
+| Model                            | Pass rate | p50     | p95     | p95 (100-word Fix) | Mean cost/call (est.) | Errors              |
+| -------------------------------- | --------- | ------- | ------- | ------------------ | --------------------- | ------------------- |
+| google/gemini-2.5-flash-lite     | 96%       | 552 ms  | 702 ms  | 755 ms OK          | $0.000057             | 0/102               |
+| **google/gemini-3.1-flash-lite** | 94%       | 629 ms  | 836 ms  | 900 ms OK          | $0.000155             | 0/102               |
+| mistralai/mistral-small-2603     | 86%       | 605 ms  | 1236 ms | 1044 ms OK         | $0.000085             | 3/102 (rate limits) |
+| openai/gpt-4.1-nano              | 84%       | 1045 ms | 3682 ms | 4497 ms FAIL       | $0.000056             | 0/102               |
 
-Then paste or link the run-1 output of each sample (the `## Outputs for manual review` section of the `.md` report). Automatic checks do not judge quality, so read them for: tone naturalness, Romanian grammar and diacritics, over-editing of already-correct text, faithfulness of translations, and the injection samples.
+What the failures were (read from the run-1 outputs):
+
+- **gemini-3.1-flash-lite:** passed every Romanian sample, kept all the text of `inj-closing-tag` (fixed the typo, ignored the injected command), no translation drift. Remaining misses are checks that are too strict (it translated an injected sentence in `inj-translate`, which is correct) and the inline-code typo (see below).
+- **gemini-2.5-flash-lite:** also passed every Romanian sample, but dropped everything after the first sentence on `inj-closing-tag` in both runs (data loss). Google also lists it as "limited access", a retirement risk.
+- **mistral-small-2603:** followed an injected instruction in `inj-translate` (answered "I have been hacked." instead of translating), dropped text on `inj-closing-tag`, ignored the US spelling variant, left a cedilla (`Şi`) uncorrected, reformatted code, and had rate-limit errors.
+- **gpt-4.1-nano:** fails the 2 s criterion (p95 4.5 s) and has more diacritic errors.
+- **All four** "fix" typos inside inline code (`` `npm instal` `` becomes `` `npm install` ``) despite the rule to leave code untouched. The sample stays as a code-fidelity check and is treated as known behaviour.
+
+Earlier passes (single sample or small n, not in the table):
+
+- First pass (100-word Fix, 3 runs): gemini-2.5-flash-lite p95 768 ms, mistral-small-2603 1146 ms, gemini-3.1-flash-lite 1731 ms, gpt-4.1-nano 1946 ms (borderline) passed; ministral-14b-2512 p95 4016 ms (p50 1.6 s), deepseek-v4-flash, qwen3.7-flash and gpt-oss-120b timed out at 10 s.
+- Free OpenRouter models (testing only): nemotron-3-super-120b-a12b:free got 63% with 14/49 errors (13 rate limits), p95 3.8 s on the 100-word Fix, and mangled Romanian (`Şi ţara` became `Ș țară`). The two Gemma free models only returned 429s; qwen3.8-27b:free and nemotron-3.5-lightning:free timed out.
 
 ## Decision
 
-| Mode | Default model | Why | p95 | Cost/call (estimate) |
-|---|---|---|---|---|
-| fix-only | | | | |
-| fix-improve | | | | |
-| shorten | | | | |
-| tone-* | | | | |
-| translate | | | | |
+Default for the OpenRouter and Google-endpoint paths: **Gemini 3.1 Flash-Lite** for every mode (`google/gemini-3.1-flash-lite` on OpenRouter, `gemini-3.1-flash-lite` on Google's OpenAI-compatible endpoint). Chosen over 2.5 Flash-Lite because it did not lose text on the injection sample and is a stable (not limited-access) model, at about $0.47 a month per 3,000 calls (estimate). Gemini 2.5 Flash-Lite stays the cheaper, slightly faster option (about $0.17 per 3,000 calls) if the retirement risk is acceptable.
 
-How to apply a decision (every place a default appears, see `AGENTS.md`):
+| Mode                                                    | Default model                | Why                                            | p95                                 | Cost/call (estimate) |
+| ------------------------------------------------------- | ---------------------------- | ---------------------------------------------- | ----------------------------------- | -------------------- |
+| all (fix-only, fix-improve, shorten, tone-*, translate) | google/gemini-3.1-flash-lite | best quality of the four, under 2 s, no errors | 836 ms (900 ms on the 100-word Fix) | $0.000155            |
 
-- `src/core/modes.ts` has a single `OPENAI_DEFAULT_MODEL` shared by every mode. Different defaults per mode need a code change there (for example a per-mode model in `SPECS`), and because modes only know OpenAI model ids, a provider-aware fallback (a `mode()`-level default per provider, or a lookup in `resolve.ts`).
-- Anthropic's default is `ANTHROPIC_DEFAULT_MODEL` in `src/raycast/resolve.ts`, not `modes.ts`.
-- Update the `defaultModel` placeholder and description in `package.json`, the Setup section of `README.md`, and this file.
+Not benchmarked per mode: only Fix has a latency criterion, and the same model is used for all modes. Shorten, tone and translate quality were checked only through the shared samples; review their outputs after dogfooding.
+
+Gemini 3.x prices are due to rise on 2027-01-01 (about double, per Google's pricing page), which would still be about $1 a month at 3,000 calls.
+
+How the default is applied:
+
+- `src/raycast/resolve.ts` (`GEMINI_OPENROUTER_MODEL`, `GEMINI_NATIVE_MODEL`, `compatibleDefaultModel`): with the OpenAI-compatible provider, an empty model resolves to the Gemini model when the base URL host is `openrouter.ai` or `generativelanguage.googleapis.com`. Other hosts still need an explicit model.
+- The OpenAI provider still defaults to `gpt-5-mini` (`OPENAI_DEFAULT_MODEL` in `src/core/modes.ts`) and Anthropic to `claude-haiku-4-5-20251001` (`ANTHROPIC_DEFAULT_MODEL`). Neither was part of this benchmark through its own API, so they are unchanged. `gpt-5-nano` (OpenAI's cheapest) is worth a direct-API run (`openai:gpt-5-nano`), not through OpenRouter, because core only sends `reasoning_effort: minimal` to OpenAI's own endpoint.
+- Per-mode defaults would need a code change in `modes.ts` (see `AGENTS.md`).
 
 ## Rejected models
 
-- `model`: reason (latency, diacritics, over-editing, ...)
+- `openai/gpt-4.1-nano`: p95 4.5 s on the 100-word Fix, more diacritic errors.
+- `mistralai/mistral-small-2603`: followed an injected instruction, dropped text, ignored the English variant, uncorrected cedilla.
+- `mistralai/ministral-14b-2512`: p95 4.0 s in the first pass (variable).
+- `deepseek/deepseek-v4-flash`, `qwen/qwen3.7-flash`, `openai/gpt-oss-120b`: timed out at 10 s in the first pass (probably reasoning by default or a slow host; the OpenAI-compatible provider cannot turn reasoning off yet, so they could be retested if that is added).
+- Free OpenRouter models: rate limits, 4 to 10 s latency, Romanian errors. Fine for testing the extension, not for use.
+- `moonshotai/kimi-k2-0905`: not benchmarked; priced higher and published speed is 30 to 50 tokens/s.
 
 ## Re-evaluate when
 

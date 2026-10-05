@@ -130,7 +130,7 @@
       "type": "textfield",
       "required": false,
       "title": "Default Model",
-      "description": "Leave empty to use gpt-5-mini (OpenAI) or claude-haiku-4-5-20251001 (Anthropic). Required for OpenAI-compatible.",
+      "description": "Leave empty to use gpt-5-mini (OpenAI), claude-haiku-4-5-20251001 (Anthropic), or google/gemini-3.1-flash-lite when the OpenAI-compatible Base URL is openrouter.ai (gemini-3.1-flash-lite for Google's endpoint). Required for other OpenAI-compatible hosts.",
       "placeholder": "gpt-5-mini"
     },
     {

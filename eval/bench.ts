@@ -4,7 +4,7 @@
  *   npx tsx eval/bench.ts --models openai:gpt-5-mini,anthropic:claude-haiku-4-5-20251001 --runs 3
  *   npx tsx eval/bench.ts --dry-run          # fake provider, no keys needed
  *
- * Flags: --models <list> (or positional) | --runs N (default 3) | --filter <id-or-tag,...> | --dry-run | --out <dir>
+ * Flags: --models <list> (or positional) | --runs N (default 3) | --filter <id-or-tag,...> | --delay <ms> (pause before each call, for rate-limited free tiers) | --dry-run | --out <dir>
  * Keys come from OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY (OPENAI_COMPATIBLE_API_KEY for other bases).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -35,6 +35,9 @@ import {
 const EVAL_DIR = __dirname;
 /** Stop a model after this many auth/request errors in a row (they would repeat for every remaining call). */
 const MAX_CONSECUTIVE_FATAL = 3;
+/** Waits before each retry of a rate-limited (429) call; after the last one the 429 is recorded as an error. */
+const RATE_LIMIT_BACKOFF_MS = [3000, 8000, 20000];
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 interface ModelResult {
   summary: ModelSummary;
@@ -174,22 +177,35 @@ async function main() {
     let aborted: string | undefined;
     outer: for (const sample of samples) {
       for (let run = 1; run <= args.runs; run++) {
-        const { provider, m } = metered(base);
+        if (args.delay > 0) await sleep(args.delay);
         current.sample = sample;
-        const t0 = performance.now();
         let output: string | null = null;
         let error: CallError | undefined;
-        try {
-          output = await runMode(sample.mode, sample.input, {
-            provider,
-            model: spec.model,
-            englishVariant: sample.englishVariant,
-            targetLanguage: sample.targetLanguage,
-          });
-        } catch (e) {
-          error = toCallError(e);
+        let latencyMs = 0;
+        let m!: ReturnType<typeof metered>["m"];
+        // Rate-limited calls are retried with backoff; only the final attempt is recorded, so a 429
+        // rejection never shows up as a (fast) latency sample.
+        for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt++) {
+          const metering = metered(base);
+          m = metering.m;
+          output = null;
+          error = undefined;
+          const t0 = performance.now();
+          try {
+            output = await runMode(sample.mode, sample.input, {
+              provider: metering.provider,
+              model: spec.model,
+              englishVariant: sample.englishVariant,
+              targetLanguage: sample.targetLanguage,
+            });
+          } catch (e) {
+            error = toCallError(e);
+          }
+          latencyMs = performance.now() - t0;
+          if (error?.kind !== "rate_limit" || attempt === RATE_LIMIT_BACKOFF_MS.length) break;
+          process.stderr.write("r");
+          await sleep(RATE_LIMIT_BACKOFF_MS[attempt]);
         }
-        const latencyMs = performance.now() - t0;
         const inputTokens = Math.ceil(m.inChars / 4);
         const outputTokens = output !== null ? estimateTokens(output) : 0;
         const checks =
