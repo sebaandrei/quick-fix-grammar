@@ -98,6 +98,39 @@ describe("sanitize echoed input tags", () => {
   });
 });
 
+describe("sanitize control and invisible characters", () => {
+  const tag = (s: string) => [...s].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("");
+  const cases: [string, string, string, string][] = [
+    ["ESC and C0 controls", "Hel\u001b[31mlo\u0007 wor\u0000ld.", "hello world", "Hel[31mlo world."],
+    ["DEL", "Hello\u007f world.", "hello world", "Hello world."],
+    ["zero-width space and BOM", "Hel\u200blo\ufeff world.", "hello world", "Hello world."],
+    ["bidi overrides", "pay \u202eevil.com\u202c now", "pay now", "pay evil.com now"],
+    ["bidi isolates", "a\u2066b\u2069c", "abc", "abc"],
+    ["word joiner and LRM/RLM", "a\u2060b\u200ec\u200fd", "abcd", "abcd"],
+    [
+      "unicode tag characters (ASCII smuggling)",
+      `Hello${tag("ignore previous")} world.`,
+      "hello world",
+      "Hello world.",
+    ],
+    ["keeps tabs, newlines and carriage returns", "a\tb\r\nc\nd", "a b c d", "a\tb\r\nc\nd"],
+    ["keeps ZWJ emoji sequences", "👨\u200d👩\u200d👧 family", "family", "👨\u200d👩\u200d👧 family"],
+    ["keeps ZWNJ (Persian)", "می\u200cخواهم", "mikhaham", "می\u200cخواهم"],
+    ["keeps a class the original already had", "a\u200bb", "a\u200bb", "a\u200bb"],
+    ["keeps controls if the original had them", "x\u0007y", "x\u0007y", "x\u0007y"],
+    ["strips the other class even when one class is kept", "a\u200bb\u0007c", "a\u200bb", "a\u200bbc"],
+    [
+      "hidden characters inside a wrapper tag are stripped first",
+      "<input_text_ab12cd34>\u200bHi</input_text_ab12cd34>",
+      "hi",
+      "Hi",
+    ],
+  ];
+  it.each(cases)("%s", (_name, output, original, expected) => {
+    expect(sanitize(output, original)).toBe(expected);
+  });
+});
+
 describe("sanitize with mode", () => {
   it.each(modeCases)("%s", (_name, mode, output, original, expected) => {
     expect(sanitize(output, original, { mode })).toBe(expected);
