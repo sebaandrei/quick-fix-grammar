@@ -1,39 +1,49 @@
-import { modes, type ModeId } from "./modes";
+import { isModeId, modes, type ModeId, type PromptOptions } from "./modes";
 import { sanitize } from "./sanitize";
-import type { LLMProvider } from "./providers/types";
+import { ProviderError, type LLMProvider } from "./providers/types";
 
-export interface RunOptions {
+export const DEFAULT_MAX_CHARS = 4000;
+
+export interface RunOptions extends PromptOptions {
   provider: LLMProvider;
   model?: string;
-  englishVariant?: "us" | "uk";
-  targetLanguage?: string;
   signal?: AbortSignal;
-  /** Default 4000. */
+  /** Positive integer; anything else falls back to DEFAULT_MAX_CHARS. */
   maxChars?: number;
 }
 
 export type InputErrorKind = "empty" | "too_long";
 
 export class InputError extends Error {
+  override readonly name = "InputError";
   readonly kind: InputErrorKind;
+  /** too_long only: the maximum allowed length. */
+  readonly limit?: number;
+  /** too_long only: the actual length. */
+  readonly length?: number;
 
-  constructor(kind: InputErrorKind, message: string) {
+  constructor(kind: InputErrorKind, message: string, details?: { limit?: number; length?: number }) {
     super(message);
-    this.name = "InputError";
     this.kind = kind;
+    this.limit = details?.limit;
+    this.length = details?.length;
   }
 }
 
-export const DEFAULT_MAX_CHARS = 4000;
-
 export async function runMode(modeId: ModeId, text: string, opts: RunOptions): Promise<string> {
+  if (!isModeId(modeId)) throw new Error(`Unknown mode: ${String(modeId)}`);
   const mode = modes[modeId];
-  if (!mode) throw new Error(`Unknown mode: ${modeId}`);
 
   if (text.trim().length === 0) throw new InputError("empty", "There is no text to process.");
-  const max = opts.maxChars ?? DEFAULT_MAX_CHARS;
+  const max =
+    typeof opts.maxChars === "number" && Number.isInteger(opts.maxChars) && opts.maxChars > 0
+      ? opts.maxChars
+      : DEFAULT_MAX_CHARS;
   if (text.length > max) {
-    throw new InputError("too_long", `Text is too long (${text.length} characters; limit is ${max}).`);
+    throw new InputError("too_long", `Text is too long (${text.length} characters; limit is ${max}).`, {
+      limit: max,
+      length: text.length,
+    });
   }
 
   const { system, user } = mode.buildPrompt(text, {
@@ -47,5 +57,7 @@ export async function runMode(modeId: ModeId, text: string, opts: RunOptions): P
     temperature: mode.temperature,
     signal: opts.signal,
   });
-  return sanitize(raw, text);
+  const result = sanitize(raw, text, { mode: modeId });
+  if (result.trim() === "") throw new ProviderError("bad_response", "Model returned no usable text");
+  return result;
 }

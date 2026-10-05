@@ -1,10 +1,8 @@
-import { Action, ActionPanel, Icon, List, LocalStorage, closeMainWindow } from "@raycast/api";
+import { Action, ActionPanel, Icon, List, LocalStorage, PopToRootType, closeMainWindow } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { getModel } from "./raycast/preferences";
 import { readSelection, reportError, runNoViewCommand } from "./raycast/selection";
-import { orderTones, type Tone } from "./raycast/tones";
-
-const LAST_TONE_KEY = "lastTone";
+import { LAST_TONE_KEY, loadOrderedTones, orderTones, type Tone } from "./raycast/tones";
 
 export default function Command() {
   const [selected, setSelected] = useState<string | undefined>();
@@ -13,36 +11,39 @@ export default function Command() {
 
   // Capture selection on mount, before the user interacts with the list.
   useEffect(() => {
+    let mounted = true;
     (async () => {
       try {
-        const last = await LocalStorage.getItem<string>(LAST_TONE_KEY);
-        setTones(orderTones(last));
-      } catch {
-        // keep default order
-      }
-      try {
-        setSelected(await readSelection());
+        const ordered = await loadOrderedTones((key) => LocalStorage.getItem<string>(key));
+        const text = await readSelection();
+        if (!mounted) return;
+        setTones(ordered);
+        setSelected(text);
       } catch (err) {
-        await closeMainWindow();
+        await closeMainWindow({ popToRootType: PopToRootType.Immediate });
         await reportError(err);
-        return;
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
-    })();
+    })().catch((err) => console.error(err));
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function pick(tone: Tone) {
+    if (selected === undefined) return;
     try {
       await LocalStorage.setItem(LAST_TONE_KEY, tone.id);
-    } catch {
-      // non-fatal
+    } catch (err) {
+      console.error("Could not save last tone:", err);
     }
     await runNoViewCommand(tone.mode, { model: getModel(), selected });
   }
 
   return (
     <List isLoading={loading} searchBarPlaceholder="Pick a tone">
-      {!loading &&
+      {selected !== undefined &&
         tones.map((tone) => (
           <List.Item
             key={tone.id}

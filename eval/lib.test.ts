@@ -7,6 +7,9 @@ import {
   estimateTokens,
   extractPreservables,
   hasPreamble,
+  isFatalCallError,
+  parseBenchArgs,
+  parseModelList,
   parseModelSpec,
   parseSamples,
   percentile,
@@ -15,6 +18,7 @@ import {
   type CallRecord,
   type Sample,
 } from "./lib";
+import { sanitize } from "../src/core/sanitize";
 
 const base = (o: Partial<Sample>): Sample => ({ id: "x", mode: "fix-only", input: "", tags: [], ...o });
 const failed = (s: Sample, out: string) =>
@@ -42,7 +46,7 @@ describe("stats", () => {
       run: 1,
       latencyMs: ms,
       output: error ? null : "o",
-      error,
+      error: error ? { kind: "network", message: error } : undefined,
       inputTokens: 1,
       outputTokens: 1,
       costUSD: 0.01,
@@ -54,10 +58,38 @@ describe("stats", () => {
       new Set(["ac"]),
     );
     expect(s.errors).toBe(1);
-    expect(s.p50).toBe(300);
+    expect(s.errorRate).toBe(0.25);
+    // errored call (0 ms here) is part of the latency distribution
+    expect(s.p50).toBe(100);
+    expect(s.p95).toBe(1500);
     expect(s.acP95).toBe(1500);
+    expect(s.acReliable).toBe(true);
     expect(s.passRate).toBe(0.5);
     expect(s.checkFailures.must).toBe(2);
+  });
+  it("marks the AC verdict unreliable when a latency-ac call errored", () => {
+    const mk = (ms: number, error?: string) =>
+      ({
+        sampleId: "ac",
+        mode: "fix-only",
+        run: 1,
+        latencyMs: ms,
+        output: null,
+        error: error ? { kind: "timeout", message: error } : undefined,
+        inputTokens: 1,
+        outputTokens: 0,
+        costUSD: null,
+        checks: [],
+        pass: false,
+      }) as CallRecord;
+    const s = summarize([mk(900), mk(10_000, "timed out")], new Set(["ac"]));
+    expect(s.acP95).toBe(10_000);
+    expect(s.acReliable).toBe(false);
+  });
+  it("fatal call errors are auth and request only", () => {
+    expect(isFatalCallError({ kind: "auth", message: "x" })).toBe(true);
+    expect(isFatalCallError({ kind: "request", message: "x" })).toBe(true);
+    expect(isFatalCallError({ kind: "rate_limit", message: "x" })).toBe(false);
   });
 });
 
@@ -78,7 +110,112 @@ describe("parseModelSpec", () => {
   });
 });
 
+describe("parseModelList", () => {
+  it("splits, trims and ignores empty entries", () => {
+    const l = parseModelList(" openai:gpt-5-mini , ,anthropic:claude-haiku-4-5-20251001 ");
+    expect(l.map((x) => x.label)).toEqual(["openai:gpt-5-mini", "anthropic:claude-haiku-4-5-20251001"]);
+    expect(parseModelList("")).toEqual([]);
+  });
+  it("throws on an invalid entry", () => {
+    expect(() => parseModelList("openai:gpt-5-mini,nonsense")).toThrow(/Invalid model spec/);
+  });
+});
+
+describe("envKeyFor", () => {
+  const compat = (baseUrl?: string) => envKeyFor({ provider: "openai-compatible", model: "m", baseUrl, label: "l" });
+  it("maps providers to their env vars", () => {
+    expect(envKeyFor(parseModelSpec("openai:gpt-5-mini"))).toBe("OPENAI_API_KEY");
+    expect(envKeyFor(parseModelSpec("anthropic:claude-haiku-4-5-20251001"))).toBe("ANTHROPIC_API_KEY");
+  });
+  it("matches openrouter by hostname only", () => {
+    expect(compat("https://openrouter.ai/api/v1")).toBe("OPENROUTER_API_KEY");
+    expect(compat("https://eu.openrouter.ai/api/v1")).toBe("OPENROUTER_API_KEY");
+    expect(compat("https://evil.example/openrouter.ai/v1")).toBe("OPENAI_COMPATIBLE_API_KEY");
+    expect(compat("https://notopenrouter.ai/v1")).toBe("OPENAI_COMPATIBLE_API_KEY");
+    expect(compat("http://localhost:11434/v1")).toBe("OPENAI_COMPATIBLE_API_KEY");
+    expect(compat(undefined)).toBe("OPENAI_COMPATIBLE_API_KEY");
+  });
+});
+
+describe("parseBenchArgs", () => {
+  const parse = (...a: string[]) => parseBenchArgs(a, "/out");
+  it("defaults and valid flags", () => {
+    expect(parse("--dry-run")).toMatchObject({ runs: 3, dryRun: true, out: "/out" });
+    expect(parse("--models", "a:b", "--runs", "5", "--filter", "x,y")).toMatchObject({
+      models: "a:b",
+      runs: 5,
+      filter: ["x", "y"],
+    });
+  });
+  it("rejects bad --runs, missing values and unknown flags", () => {
+    for (const bad of ["0", "-1", "abc", "2.5", "3x", ""]) expect(() => parse("--runs", bad)).toThrow(/--runs/);
+    expect(() => parse("--runs")).toThrow(/Missing value/);
+    expect(() => parse("--models", "--dry-run")).toThrow(/Missing value/);
+    expect(() => parse("--out")).toThrow(/Missing value/);
+    expect(() => parse("--nope")).toThrow(/Unknown flag/);
+  });
+});
+
+describe("parseSamples", () => {
+  const ok = (o: object = {}) => JSON.stringify({ id: "a", mode: "fix-only", input: "x", tags: [], ...o });
+  it("accepts valid lines and skips blanks and // comments", () => {
+    expect(parseSamples(`// c\n\n${ok()}\n${ok({ id: "b", englishVariant: "uk" })}\n`)).toHaveLength(2);
+  });
+  it("rejects invalid samples with the line number", () => {
+    const bad: [object, RegExp][] = [
+      [{ mode: "nope" }, /unknown mode/],
+      [{ mode: "toString" }, /unknown mode/],
+      [{ id: "" }, /id/],
+      [{ input: 3 }, /input/],
+      [{ tags: ["ok", 1] }, /tags/],
+      [{ tags: "x" }, /tags/],
+      [{ englishVariant: "au" }, /englishVariant/],
+      [{ must: [1] }, /must/],
+      [{ expected: 1 }, /expected/],
+      [{ targetLanguage: 1 }, /targetLanguage/],
+    ];
+    for (const [o, re] of bad) expect(() => parseSamples(`\n${ok(o)}`), JSON.stringify(o)).toThrow(re);
+    expect(() => parseSamples(`\n${ok({ id: "" })}`)).toThrow(/line 2/);
+    expect(() => parseSamples("{not json")).toThrow(/line 1/);
+    expect(() => parseSamples("[]")).toThrow(/not an object/);
+  });
+  it("rejects duplicate ids", () => {
+    expect(() => parseSamples(`${ok()}\n${ok()}`)).toThrow(/duplicate id "a"/);
+  });
+});
+
+describe("hasPreamble agrees with sanitize", () => {
+  // Outputs the sanitizer strips a preamble from must also be flagged by the eval check.
+  const preambled = [
+    "Here is the corrected text:\n\nHello.",
+    "Here's the fixed version:\nHello.",
+    "Here are the results:\n\nHello.",
+    "Sure! Here is your text:\n\nHello.",
+    "Certainly, here is it:\nHello.",
+    "Of course, here you go:\nHello.",
+    "Okay, done:\nHello.",
+  ];
+  const clean = ["Hello there.", "Heres a typo", "Hello, here is a sentence.\nSecond line."];
+  it.each(preambled)("flags %j and the sanitizer strips it", (out) => {
+    expect(hasPreamble(out)).toBe(true);
+    expect(sanitize(out, "hello")).toBe("Hello.");
+  });
+  it.each(clean)("does not flag %j and the sanitizer keeps it", (out) => {
+    expect(hasPreamble(out)).toBe(false);
+    expect(sanitize(out, "x").trim()).toBe(out.trim());
+  });
+});
+
 describe("checks", () => {
+  it("keep-header skips noPreamble", () => {
+    const s = base({ input: "Heres what i need:\n- a", tags: ["keep-header"] });
+    expect(failed(s, "Here's what I need:\n- a")).toEqual([]);
+    expect(failed(base({ input: "Heres what i need:\n- a" }), "Here's what I need:\n- a")).toContain("noPreamble");
+  });
+  it("ro-diacritics is skipped for translate", () => {
+    const s = base({ mode: "translate", input: "Mâine și țara", tags: ["ro-diacritics"] });
+    expect(failed(s, "Tomorrow and the country")).not.toContain("diacritics");
+  });
   it("unchanged-when-correct", () => {
     const s = base({ input: "All good.", tags: ["correct"] });
     expect(failed(s, "All good.")).toEqual([]);

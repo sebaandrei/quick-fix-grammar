@@ -10,13 +10,26 @@ export interface OpenAIProviderConfig {
 }
 
 /** gpt-5 / o-series models only accept the default temperature. */
-function isFixedTemperatureModel(model: string): boolean {
+export function isFixedTemperatureModel(model: string): boolean {
   return /^(gpt-5|o\d)/i.test(model);
+}
+
+/** Only these accept reasoning_effort "minimal"; other gpt-5 variants (e.g. gpt-5.1, gpt-5-codex) may reject it. */
+export function supportsMinimalReasoning(model: string): boolean {
+  return /^gpt-5(?:-mini|-nano)?(?:-\d{4}-\d{2}-\d{2})?$/i.test(model.trim());
+}
+
+export function isOfficialBaseUrl(baseUrl: string): boolean {
+  return baseUrl.trim().replace(/\/+$/, "").toLowerCase() === OPENAI_BASE_URL;
+}
+
+interface OpenAIResponse {
+  choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
 }
 
 export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
   const baseUrl = cfg.baseUrl?.trim() || OPENAI_BASE_URL;
-  const isOfficial = baseUrl.replace(/\/+$/, "") === OPENAI_BASE_URL;
+  const isOfficial = isOfficialBaseUrl(baseUrl);
 
   return {
     async complete(req: CompleteRequest): Promise<string> {
@@ -27,8 +40,7 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
           { role: "user", content: req.user },
         ],
       };
-      const reasoning = isOfficial && /^gpt-5/i.test(req.model);
-      if (reasoning) body.reasoning_effort = "minimal";
+      if (isOfficial && supportsMinimalReasoning(req.model)) body.reasoning_effort = "minimal";
       if (req.temperature !== undefined && !(isOfficial && isFixedTemperatureModel(req.model))) {
         body.temperature = req.temperature;
       }
@@ -38,10 +50,18 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
         { Authorization: `Bearer ${cfg.apiKey}` },
         body,
         req.signal,
-      )) as { choices?: { message?: { content?: unknown } }[] };
+      )) as OpenAIResponse | null;
 
-      const content = json?.choices?.[0]?.message?.content;
-      if (typeof content !== "string" || content.length === 0) {
+      const choice = Array.isArray(json?.choices) ? json.choices[0] : undefined;
+      const finish = choice?.finish_reason;
+      if (finish === "length") {
+        throw new ProviderError("bad_response", "The response was cut off because the model hit its token limit.");
+      }
+      if (finish === "content_filter") {
+        throw new ProviderError("bad_response", "The response was blocked by the provider's content filter.");
+      }
+      const content = choice?.message?.content;
+      if (typeof content !== "string" || content.trim().length === 0) {
         throw new ProviderError("bad_response", "Response did not contain message content.");
       }
       return content;

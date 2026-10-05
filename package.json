@@ -15,8 +15,7 @@
   "commands": [
     {
       "name": "fix-improve",
-      "title": "Fix & Improve",
-      "subtitle": "Quick Fix Grammar",
+      "title": "Fix and Improve Text",
       "description": "Fix spelling and grammar in the selected text and lightly polish it.",
       "mode": "no-view",
       "preferences": [
@@ -32,8 +31,7 @@
     },
     {
       "name": "shorten",
-      "title": "Shorten",
-      "subtitle": "Quick Fix Grammar",
+      "title": "Shorten Text",
       "description": "Make the selected text more concise while keeping its meaning.",
       "mode": "no-view",
       "preferences": [
@@ -50,7 +48,6 @@
     {
       "name": "change-tone",
       "title": "Change Tone",
-      "subtitle": "Quick Fix Grammar",
       "description": "Rewrite the selected text in a chosen tone.",
       "mode": "view",
       "preferences": [
@@ -66,8 +63,7 @@
     },
     {
       "name": "translate",
-      "title": "Translate",
-      "subtitle": "Quick Fix Grammar",
+      "title": "Translate Text",
       "description": "Translate the selected text (auto EN/RO toggle by default).",
       "mode": "no-view",
       "preferences": [
@@ -118,7 +114,7 @@
       "type": "password",
       "required": true,
       "title": "API Key",
-      "description": "Your provider API key. Stored securely by Raycast.",
+      "description": "Your provider API key. Stored securely by Raycast. Any placeholder works for local endpoints like Ollama.",
       "placeholder": "sk-..."
     },
     {
@@ -126,7 +122,7 @@
       "type": "textfield",
       "required": false,
       "title": "Base URL",
-      "description": "Only for OpenAI-compatible providers (OpenRouter, Groq, Ollama...).",
+      "description": "Only used with the OpenAI-compatible provider. Ignored for OpenAI and Anthropic.",
       "placeholder": "https://openrouter.ai/api/v1"
     },
     {
@@ -134,7 +130,7 @@
       "type": "textfield",
       "required": false,
       "title": "Default Model",
-      "description": "Model used when a command has no override.",
+      "description": "Leave empty to use gpt-5-mini (OpenAI) or claude-haiku-4-5-20251001 (Anthropic). Required for OpenAI-compatible.",
       "placeholder": "gpt-5-mini"
     },
     {
@@ -175,8 +171,7 @@
     }
   ],
   "dependencies": {
-    "@raycast/api": "^1.100.0",
-    "@raycast/utils": "^1.19.0"
+    "@raycast/api": "^1.100.0"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.0",

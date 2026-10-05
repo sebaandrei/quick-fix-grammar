@@ -1,19 +1,11 @@
 /** Pure scoring / stats helpers for eval/bench.ts. No I/O, no network. */
 
-export type SampleMode =
-  | "fix-only"
-  | "fix-improve"
-  | "shorten"
-  | "tone-professional"
-  | "tone-friendly"
-  | "tone-casual"
-  | "tone-confident"
-  | "tone-direct"
-  | "translate";
+import { isModeId, type EnglishVariant, type ModeId } from "../src/core/modes";
+import type { ProviderId } from "../src/core/providers/types";
 
 export interface Sample {
   id: string;
-  mode: SampleMode;
+  mode: ModeId;
   input: string;
   /** Exact expected output (compared after trim + NFC). */
   expected?: string;
@@ -23,11 +15,13 @@ export interface Sample {
   mustNot?: string[];
   /**
    * Tags with built-in meaning: correct (must be unchanged), ro-diacritics (diacritics of expected/input must
-   * survive), expect-diacritics (output must contain >= 1 Romanian diacritic), shorter (output shorter than input),
+   * survive; skipped for translate samples, where the output language differs), keep-header (input starts with a header
+   * line that the output must keep, so the noPreamble check is skipped), latency-ac (the sample whose p95
+   * is checked against the 2 s acceptance criterion), expect-diacritics (output must contain >= 1 Romanian diacritic), shorter (output shorter than input),
    * injection (informational; the must/mustNot lists do the work).
    */
   tags: string[];
-  englishVariant?: "us" | "uk";
+  englishVariant?: EnglishVariant;
   targetLanguage?: string;
 }
 
@@ -79,7 +73,8 @@ export function runChecks(sample: Sample, output: string): CheckResult[] {
   const tags = new Set(sample.tags);
 
   add("nonEmpty", out.length > 0);
-  add("noPreamble", !hasPreamble(output));
+  // keep-header: the input legitimately starts with a "Here is ...:" style header, so one in the output is correct.
+  if (!tags.has("keep-header")) add("noPreamble", !hasPreamble(output));
   add("noWrapper", !isWrapped(sample.input, output));
   add("noCedilla", !CEDILLA.test(output), "uses cedilla s/t instead of comma-below");
 
@@ -139,7 +134,7 @@ export function costUSD(inputTokens: number, outputTokens: number, price: Price 
 }
 
 export interface ModelSpec {
-  provider: "openai" | "anthropic" | "openai-compatible";
+  provider: ProviderId;
   model: string;
   baseUrl?: string;
   label: string;
@@ -169,16 +164,47 @@ export function parseModelList(list: string): ModelSpec[] {
 export function envKeyFor(spec: ModelSpec): string {
   if (spec.provider === "openai") return "OPENAI_API_KEY";
   if (spec.provider === "anthropic") return "ANTHROPIC_API_KEY";
-  return /openrouter/i.test(spec.baseUrl ?? "") ? "OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
+  let host = "";
+  try {
+    host = new URL(spec.baseUrl ?? "").hostname.toLowerCase();
+  } catch {
+    // no/invalid base URL: fall through to the generic key
+  }
+  const isOpenRouter = host === "openrouter.ai" || host.endsWith(".openrouter.ai");
+  return isOpenRouter ? "OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
+}
+
+export interface CallError {
+  kind: string;
+  status?: number;
+  message: string;
+}
+
+/** Normalizes anything thrown by runMode/providers into a serializable error. */
+export function toCallError(e: unknown): CallError {
+  if (e instanceof Error) {
+    const x = e as Error & { kind?: unknown; status?: unknown };
+    return {
+      kind: typeof x.kind === "string" ? x.kind : "unknown",
+      ...(typeof x.status === "number" ? { status: x.status } : {}),
+      message: e.message,
+    };
+  }
+  return { kind: "unknown", message: String(e) };
+}
+
+/** Errors that will keep failing for every sample (bad key, bad URL/model), so a model run should stop early. */
+export function isFatalCallError(e: CallError): boolean {
+  return e.kind === "auth" || e.kind === "request";
 }
 
 export interface CallRecord {
   sampleId: string;
-  mode: string;
+  mode: ModeId;
   run: number;
   latencyMs: number;
   output: string | null;
-  error?: string;
+  error?: CallError;
   inputTokens: number;
   outputTokens: number;
   costUSD: number | null;
@@ -189,45 +215,117 @@ export interface CallRecord {
 export interface ModelSummary {
   calls: number;
   errors: number;
+  errorRate: number;
   passRate: number;
+  /** Latency percentiles include errored calls (a timeout is a slow call, not a missing one). */
   p50: number;
   p95: number;
   meanCostUSD: number | null;
-  /** p95 over samples tagged "latency-ac" (the ~100-word Fix input). */
+  /** p95 over samples tagged "latency-ac" (the ~100-word Fix input), errored calls included. */
   acP95: number | null;
+  /** False when any latency-ac call errored: the AC verdict then rests on failed calls and cannot be trusted. */
+  acReliable: boolean;
   checkFailures: Record<string, number>;
 }
 
 export function summarize(records: CallRecord[], acSampleIds: Set<string>): ModelSummary {
   const ok = records.filter((r) => !r.error);
-  const lat = ok.map((r) => r.latencyMs);
+  const lat = records.map((r) => r.latencyMs);
   const costs = ok.map((r) => r.costUSD).filter((c): c is number => c !== null);
-  const acLat = ok.filter((r) => acSampleIds.has(r.sampleId)).map((r) => r.latencyMs);
+  const acRecs = records.filter((r) => acSampleIds.has(r.sampleId));
   const checkFailures: Record<string, number> = {};
   for (const r of records)
     for (const c of failedChecks(r.checks)) checkFailures[c.name] = (checkFailures[c.name] ?? 0) + 1;
   return {
     calls: records.length,
     errors: records.length - ok.length,
+    errorRate: records.length ? (records.length - ok.length) / records.length : 0,
     passRate: records.length ? records.filter((r) => r.pass).length / records.length : NaN,
     p50: percentile(lat, 50),
     p95: percentile(lat, 95),
     meanCostUSD: costs.length ? mean(costs) : null,
-    acP95: acLat.length ? percentile(acLat, 95) : null,
+    acP95: acRecs.length
+      ? percentile(
+          acRecs.map((r) => r.latencyMs),
+          95,
+        )
+      : null,
+    acReliable: acRecs.length > 0 && acRecs.every((r) => !r.error),
     checkFailures,
   };
 }
 
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** Validates one parsed JSONL value; throws with `where` in the message. */
+export function assertSample(v: unknown, where: string): asserts v is Sample {
+  const fail = (why: string): never => {
+    throw new Error(`Invalid sample (${where}): ${why}`);
+  };
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return fail("not an object");
+  const o = v as Record<string, unknown>;
+  if (typeof o.id !== "string" || !o.id) fail("id must be a non-empty string");
+  if (!isModeId(o.mode)) fail(`unknown mode ${JSON.stringify(o.mode)}`);
+  if (typeof o.input !== "string") fail("input must be a string");
+  if (!isStringArray(o.tags)) fail("tags must be an array of strings");
+  if (o.expected !== undefined && typeof o.expected !== "string") fail("expected must be a string");
+  if (o.must !== undefined && !isStringArray(o.must)) fail("must must be an array of strings");
+  if (o.mustNot !== undefined && !isStringArray(o.mustNot)) fail("mustNot must be an array of strings");
+  if (o.englishVariant !== undefined && o.englishVariant !== "us" && o.englishVariant !== "uk")
+    fail('englishVariant must be "us" or "uk"');
+  if (o.targetLanguage !== undefined && typeof o.targetLanguage !== "string") fail("targetLanguage must be a string");
+}
+
 export function parseSamples(jsonl: string): Sample[] {
-  return jsonl
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("//"))
-    .map((l, i) => {
-      const s = JSON.parse(l) as Sample;
-      if (!s.id || !s.mode || typeof s.input !== "string" || !Array.isArray(s.tags)) {
-        throw new Error(`Invalid sample on line ${i + 1}`);
-      }
-      return s;
-    });
+  const seen = new Set<string>();
+  const out: Sample[] = [];
+  jsonl.split("\n").forEach((raw, i) => {
+    const l = raw.trim();
+    if (!l || l.startsWith("//")) return;
+    const where = `line ${i + 1}`;
+    let v: unknown;
+    try {
+      v = JSON.parse(l);
+    } catch (e) {
+      throw new Error(`Invalid sample (${where}): ${e instanceof Error ? e.message : String(e)}`);
+    }
+    assertSample(v, where);
+    if (seen.has(v.id)) throw new Error(`Invalid sample (${where}): duplicate id "${v.id}"`);
+    seen.add(v.id);
+    out.push(v);
+  });
+  return out;
+}
+
+/** Strict CLI parsing for eval/bench.ts: unknown flags, missing values and a non-positive --runs all throw. */
+export interface BenchArgs {
+  models: string;
+  runs: number;
+  filter: string[];
+  dryRun: boolean;
+  out: string;
+}
+
+export function parseBenchArgs(argv: string[], defaultOut: string): BenchArgs {
+  const a: BenchArgs = { models: "", runs: 3, filter: [], dryRun: false, out: defaultOut };
+  for (let i = 0; i < argv.length; i++) {
+    const v = argv[i];
+    const value = (): string => {
+      const next = argv[++i];
+      if (next === undefined || next.startsWith("--")) throw new Error(`Missing value for ${v}`);
+      return next;
+    };
+    if (v === "--dry-run") a.dryRun = true;
+    else if (v === "--models") a.models = value();
+    else if (v === "--runs") {
+      const raw = value();
+      const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+      if (!Number.isSafeInteger(n) || n < 1) throw new Error(`--runs must be a positive integer, got "${raw}"`);
+      a.runs = n;
+    } else if (v === "--filter") a.filter = value().split(",").filter(Boolean);
+    else if (v === "--out") a.out = value();
+    else if (!v.startsWith("--")) a.models = v;
+    else throw new Error(`Unknown flag ${v}`);
+  }
+  return a;
 }

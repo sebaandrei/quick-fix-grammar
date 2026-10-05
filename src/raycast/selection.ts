@@ -1,65 +1,33 @@
-import { Clipboard, Toast, closeMainWindow, getSelectedText, showHUD, showToast } from "@raycast/api";
+import {
+  Clipboard,
+  PopToRootType,
+  Toast,
+  closeMainWindow,
+  getSelectedText,
+  showHUD,
+  showToast,
+} from "@raycast/api";
 import type { ModeId } from "../core/modes";
 import { createProvider } from "../core/providers";
-import { runMode } from "../core/run";
-import { NoSelectionError, toUserMessage } from "./errors";
-import { getExtensionConfig } from "./preferences";
+import { DEFAULT_MAX_CHARS, runMode } from "../core/run";
+import { toUserMessage } from "./errors";
+import { getExtensionConfig, validateConfig } from "./preferences";
+import { hudFor, labelsFor, readSelection as readSelectionWith, replaceSelection as replaceWith } from "./selection-core";
+import type { SelectionDeps } from "./selection-core";
 
-const MAX_CHARS = 4000;
-const RESTORE_DELAY_MS = 250;
+const deps: SelectionDeps = {
+  readClipboard: async () => {
+    const { text, html, file } = await Clipboard.read();
+    return { text, html, file };
+  },
+  copy: (content, options) => Clipboard.copy(content, options),
+  paste: (text) => Clipboard.paste(text),
+  clear: () => Clipboard.clear(),
+  getSelectedText,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-export async function readSelection(): Promise<string> {
-  let text: string;
-  try {
-    text = await getSelectedText();
-  } catch {
-    throw new NoSelectionError();
-  }
-  if (!text || !text.trim()) throw new NoSelectionError();
-  return text;
-}
-
-async function restoreClipboard(prev: Clipboard.ReadContent): Promise<void> {
-  const content: Clipboard.Content | undefined = prev.file
-    ? { file: prev.file }
-    : prev.html !== undefined && prev.html !== ""
-      ? { html: prev.html, text: prev.text }
-      : prev.text
-        ? { text: prev.text }
-        : undefined;
-  if (content) await Clipboard.copy(content);
-  else await Clipboard.clear();
-}
-
-/**
- * Snapshot clipboard -> read selection -> transform(text) -> paste -> restore clipboard.
- * Clipboard is always restored; nothing is pasted if transform throws.
- * `selected` may be supplied when the selection was captured earlier.
- */
-export async function replaceSelection(transform: (text: string) => Promise<string>, selected?: string): Promise<void> {
-  let prev: Clipboard.ReadContent = { text: "" };
-  try {
-    prev = await Clipboard.read();
-  } catch {
-    // unreadable clipboard: treat as empty
-  }
-  let pasted = false;
-  try {
-    const text = selected ?? (await readSelection());
-    const result = await transform(text);
-    await Clipboard.paste(result);
-    pasted = true;
-  } finally {
-    if (pasted) await sleep(RESTORE_DELAY_MS);
-    try {
-      await restoreClipboard(prev);
-    } catch {
-      // best effort
-    }
-  }
-}
+export const readSelection = () => readSelectionWith(deps);
 
 export interface FlowOptions {
   model?: string;
@@ -68,30 +36,39 @@ export interface FlowOptions {
   selected?: string;
 }
 
+/** Logs the full error for debugging (never the user's text) and shows a HUD; never throws. */
 export async function reportError(err: unknown): Promise<void> {
-  const { title, message } = toUserMessage(err);
-  await showHUD(`${title}: ${message}`);
+  console.error(err);
+  try {
+    const { title, message } = toUserMessage(err);
+    await showHUD(`${title}: ${message}`);
+  } catch (hudErr) {
+    console.error("Could not show error HUD:", hudErr);
+  }
 }
 
-/** Shared no-view flow: close window -> toast -> run -> paste -> HUD. */
+/** Shared no-view flow: validate -> close window -> toast -> run -> paste -> HUD. */
 export async function runNoViewCommand(modeId: ModeId, opts: FlowOptions = {}): Promise<void> {
-  const cfg = getExtensionConfig();
   try {
-    await closeMainWindow();
-    await showToast({ style: Toast.Style.Animated, title: "Fixing…" });
+    const cfg = getExtensionConfig();
+    validateConfig(cfg, opts.model);
+    const labels = labelsFor(modeId);
+    await closeMainWindow({ popToRootType: PopToRootType.Immediate });
+    await showToast({ style: Toast.Style.Animated, title: labels.progress });
     const provider = createProvider({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
-    await replaceSelection(
+    const outcome = await replaceWith(
+      deps,
       (text) =>
         runMode(modeId, text, {
           provider,
           model: opts.model,
           englishVariant: cfg.englishVariant,
           targetLanguage: opts.targetLanguage,
-          maxChars: MAX_CHARS,
+          maxChars: DEFAULT_MAX_CHARS,
         }),
       opts.selected,
     );
-    await showHUD("Fixed ✓");
+    await showHUD(hudFor(outcome, labels));
   } catch (err) {
     await reportError(err);
   }

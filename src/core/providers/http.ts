@@ -6,18 +6,28 @@ export function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
-/** Map an HTTP status to a ProviderError; returns undefined for 2xx. */
-export function errorForStatus(status: number, detail: string): ProviderError | undefined {
-  if (status >= 200 && status < 300) return undefined;
+const MAX_DETAIL_CHARS = 300;
+
+/** Map a non-2xx HTTP status to a ProviderError. Detail is truncated to 300 chars. */
+export function errorForStatus(status: number, detail: string): ProviderError {
+  const d = detail.slice(0, MAX_DETAIL_CHARS).trim();
   if (status === 401 || status === 403)
-    return new ProviderError("auth", `Authentication failed (${status}). ${detail}`.trim(), status);
-  if (status === 429) return new ProviderError("rate_limit", `Rate limited (429). ${detail}`.trim(), status);
-  return new ProviderError("bad_response", `Request failed with status ${status}. ${detail}`.trim(), status);
+    return new ProviderError("auth", `Authentication failed (${status}). ${d}`.trim(), status);
+  if (status === 429) return new ProviderError("rate_limit", `Rate limited (429). ${d}`.trim(), status);
+  if (status === 400 || status === 404 || status === 422)
+    return new ProviderError("request", `Request rejected by the provider (${status}). ${d}`.trim(), status);
+  return new ProviderError("bad_response", `Request failed with status ${status}. ${d}`.trim(), status);
+}
+
+function abortError(timedOut: boolean, cause: unknown): ProviderError {
+  return timedOut
+    ? new ProviderError("timeout", "Request timed out.", undefined, { cause })
+    : new ProviderError("aborted", "Request was aborted.", undefined, { cause });
 }
 
 /**
  * POST JSON with a timeout combined with an optional caller signal.
- * Throws ProviderError (timeout / network / auth / rate_limit / bad_response).
+ * Throws ProviderError (timeout / aborted / network / auth / rate_limit / request / bad_response).
  * Returns the parsed JSON body.
  */
 export async function postJson(
@@ -50,28 +60,28 @@ export async function postJson(
       });
     } catch (e) {
       if (controller.signal.aborted || (e instanceof Error && e.name === "AbortError")) {
-        throw new ProviderError("timeout", timedOut ? "Request timed out." : "Request was aborted.");
+        throw abortError(timedOut, e);
       }
-      throw new ProviderError("network", `Network error: ${e instanceof Error ? e.message : String(e)}`);
+      throw new ProviderError("network", `Network error: ${e instanceof Error ? e.message : String(e)}`, undefined, {
+        cause: e,
+      });
     }
 
     if (!res.ok) {
-      let detail = "";
+      let detail: string;
       try {
-        detail = (await res.text()).slice(0, 300);
+        detail = (await res.text()).slice(0, MAX_DETAIL_CHARS);
       } catch {
-        // ignore
+        detail = "(could not read response body)";
       }
-      throw errorForStatus(res.status, detail) as ProviderError;
+      throw errorForStatus(res.status, detail);
     }
 
     try {
       return await res.json();
-    } catch {
-      if (controller.signal.aborted) {
-        throw new ProviderError("timeout", timedOut ? "Request timed out." : "Request was aborted.");
-      }
-      throw new ProviderError("bad_response", "Response body was not valid JSON.", res.status);
+    } catch (e) {
+      if (controller.signal.aborted) throw abortError(timedOut, e);
+      throw new ProviderError("bad_response", "Response body was not valid JSON.", res.status, { cause: e });
     }
   } finally {
     clearTimeout(timer);

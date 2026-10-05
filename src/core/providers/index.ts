@@ -1,11 +1,12 @@
 import { createAnthropicProvider } from "./anthropic";
 import { createOpenAIProvider } from "./openai";
-import type { LLMProvider } from "./types";
+import { ProviderError, type LLMProvider, type ProviderId } from "./types";
 
-export type ProviderName = "openai" | "anthropic" | "openai-compatible";
+/** @deprecated Use ProviderId. */
+export type ProviderName = ProviderId;
 
 export interface ProviderConfig {
-  provider: ProviderName;
+  provider: ProviderId;
   apiKey: string;
   baseUrl?: string;
 }
@@ -14,8 +15,12 @@ export function createProvider(cfg: ProviderConfig): LLMProvider {
   switch (cfg.provider) {
     case "anthropic":
       return createAnthropicProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
-    case "openai":
     case "openai-compatible":
+      if (!cfg.baseUrl?.trim()) {
+        throw new ProviderError("request", "Base URL is required for OpenAI-compatible providers");
+      }
+      return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
+    case "openai":
       return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
   }
 }

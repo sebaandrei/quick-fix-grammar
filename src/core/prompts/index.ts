@@ -1,7 +1,8 @@
 import type { BuiltPrompt, PromptOptions } from "../modes";
-import { composeSystem, wrapInput } from "./shared";
+import { composeSystem, inputTagFor, wrapInput, type NonceGenerator } from "./shared";
 
-export { SHARED_RULES } from "./shared";
+export { SHARED_RULES, sharedRules, inputTagFor, wrapInput, composeSystem, randomNonce } from "./shared";
+export type { NonceGenerator } from "./shared";
 
 export const FIX_ONLY_TASK =
   "Fix spelling, grammar, punctuation, and capitalization errors with the MINIMAL possible edits. Do not rephrase, reorder, change word choice, tone, or style, and do not improve clarity. Only change what is clearly wrong.";
@@ -35,6 +36,7 @@ export function translateTask(opts: PromptOptions): string {
   return "Translate the text between English and Romanian. Detect the language of the input: if it is Romanian, translate it to English; if it is English, translate it to Romanian (with correct diacritics ă, â, î, ș, ț); if it is any other language, translate it to English. Keep the meaning, tone, and formatting. This task overrides the 'keep the input language' rule.";
 }
 
-export function buildPrompt(task: string, text: string, opts: PromptOptions): BuiltPrompt {
-  return { system: composeSystem(task, opts), user: wrapInput(text) };
+export function buildPrompt(task: string, text: string, opts: PromptOptions, nonce?: NonceGenerator): BuiltPrompt {
+  const tag = inputTagFor(text, nonce);
+  return { system: composeSystem(task, opts, tag), user: wrapInput(text, tag) };
 }

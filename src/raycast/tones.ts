@@ -15,3 +15,15 @@ export function orderTones(lastId?: string | null): Tone[] {
   const last = TONES.find((t) => t.id === lastId);
   return last ? [last, ...TONES.filter((t) => t !== last)] : [...TONES];
 }
+
+/** Loads the last-used tone via the injected reader; storage failures fall back to the default order. */
+export async function loadOrderedTones(getItem: (key: string) => Promise<string | undefined>): Promise<Tone[]> {
+  try {
+    return orderTones(await getItem(LAST_TONE_KEY));
+  } catch (err) {
+    console.error("Could not read last tone:", err);
+    return orderTones();
+  }
+}
+
+export const LAST_TONE_KEY = "lastTone";

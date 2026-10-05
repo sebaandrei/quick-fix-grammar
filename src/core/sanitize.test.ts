@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ModeId } from "./modes";
 import { sanitize } from "./sanitize";
 
 const cases: [string, string, string, string][] = [
@@ -23,10 +24,59 @@ const cases: [string, string, string, string][] = [
   ["both ends", "Hello.", "\n  hello \t\n", "\n  Hello.\t\n".replace("\t", " \t")],
   ["multi-line markdown kept", "- a\n- b\n\n**c**", "- a\n- b\n\n**c**", "- a\n- b\n\n**c**"],
   ["single char", "A", "a", "A"],
+  // curly / guillemet / single-curly: inner-pair guard on every pair
+  ["curly pairs kept", "“Yes” and “no”", "yes and no", "“Yes” and “no”"],
+  ["guillemet pairs kept", "«Da» și «nu»", "da si nu", "«Da» și «nu»"],
+  ["single curly pairs kept", "‘Yes’ and ‘no’", "yes and no", "‘Yes’ and ‘no’"],
+  ["guillemet wrapper stripped", "«Hello world.»", "hello world", "Hello world."],
+  ["single curly wrapper stripped", "‘Hello world.’", "hello world", "Hello world."],
+  ["backtick wrapper stripped", "`Hello world.`", "hello world", "Hello world."],
+  ["backtick pairs kept", "`a` and `b`", "a and b", "`a` and `b`"],
+  ["elision 'Twas not mangled", "'Twas the night before", "twas the night before", "'Twas the night before"],
+  ["elision 'Twas wrapped sentence kept", "'Twas brillig'", "twas brillig", "'Twas brillig'"],
+  ["elision ’90s not mangled", "I love the ’90s", "i love the 90s", "I love the ’90s"],
+  ["elision 90s straight kept", "'90s kids rule'", "90s kids rule", "'90s kids rule'"],
+  ["apostrophe inside wrapper kept", "'It's fine'", "its fine", "'It's fine'"],
+  ["lone quote char", '"', "x", '"'],
+  // preamble must not delete real content
+  [
+    "input intro line with colon kept",
+    "Here's what I need:\n- a\n- b",
+    "Heres what i need:\n- a\n- b",
+    "Here's what I need:\n- a\n- b",
+  ],
+  [
+    "input opener without colon kept",
+    "Here is what I need:\n- a",
+    "Here is what i need\n- a",
+    "Here is what I need:\n- a",
+  ],
+  ["input first line ends with colon kept", "Sure thing:\nx", "sure thing:\ny", "Sure thing:\nx"],
+  ["indented first line ending with colon", "Okay, plan:\nx", "  okay plan:\ny", "  Okay, plan:\nx"],
+  ["unrelated input still strips", "Here is the fix:\n\nFine.", "fine\nsecond", "Fine."],
+];
+
+const modeCases: [string, ModeId | undefined, string, string, string][] = [
+  [
+    "translate keeps RO->EN header",
+    "translate",
+    "Here is the list:\n- a\n- b",
+    "Aici este lista:\n- a\n- b",
+    "Here is the list:\n- a\n- b",
+  ],
+  ["fix-only still strips", "fix-only", "Here is the list:\n- a", "lst\n- a", "- a"],
+  ["no mode still strips", undefined, "Here is the list:\n- a", "lst\n- a", "- a"],
+  ["translate still strips fences", "translate", "```\nHello\n```", "Salut", "Hello"],
 ];
 
 describe("sanitize", () => {
   it.each(cases)("%s", (_name, output, original, expected) => {
     expect(sanitize(output, original)).toBe(expected);
+  });
+});
+
+describe("sanitize with mode", () => {
+  it.each(modeCases)("%s", (_name, mode, output, original, expected) => {
+    expect(sanitize(output, original, { mode })).toBe(expected);
   });
 });
