@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderError } from "../core/providers/types";
 import { NoSelectionError, SelectionReadError } from "./errors";
 import {
+  RAYCAST_BUNDLE_ID,
   RESTORE_DELAY_MS,
   hudFor,
   labelsFor,
@@ -21,6 +22,7 @@ function makeDeps(over: Partial<SelectionDeps> & { clip?: ClipboardSnapshot } = 
     paste: vi.fn(async () => void calls.push("paste")),
     clear: vi.fn(async () => void calls.push("clear")),
     getSelectedText: vi.fn(async () => "hello"),
+    frontmostApp: vi.fn(async () => "com.example.editor"),
     sleep: vi.fn(async () => void calls.push("sleep")),
     ...over,
   };
@@ -183,6 +185,69 @@ describe("readSelection", () => {
     await expect(readSelection(withGet(() => Promise.reject("weird")))).rejects.toThrow(
       "Could not read selection: weird",
     );
+  });
+});
+
+describe("frontmost app check", () => {
+  /** frontmostApp returns these in order, then repeats the last one. */
+  const sequence = (...apps: (string | undefined | Error)[]) => {
+    let i = 0;
+    return vi.fn(async () => {
+      const v = apps[Math.min(i++, apps.length - 1)];
+      if (v instanceof Error) throw v;
+      return v;
+    });
+  };
+
+  it("pastes when the same app is frontmost before and after", async () => {
+    const { deps } = makeDeps({ frontmostApp: sequence("com.a", "com.a") });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+    expect(deps.paste).toHaveBeenCalledWith("Hello");
+  });
+
+  it("does not paste after the user switched apps: result goes to the clipboard, unrestored", async () => {
+    const { deps } = makeDeps({ frontmostApp: sequence("com.a", "com.slack") });
+    const outcome = await replaceSelection(deps, async () => "Hello");
+    expect(outcome).toBe("focus_changed");
+    expect(deps.paste).not.toHaveBeenCalled();
+    expect(deps.copy).toHaveBeenCalledTimes(1);
+    expect(deps.copy).toHaveBeenCalledWith({ text: "Hello" });
+    expect(deps.sleep).not.toHaveBeenCalled();
+    expect(hudFor(outcome, labelsFor("fix-only"))).toMatch(/clipboard, not pasted/);
+  });
+
+  it("does not paste when Raycast itself was opened during the request", async () => {
+    const { deps } = makeDeps({ frontmostApp: sequence("com.a", RAYCAST_BUNDLE_ID) });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("focus_changed");
+    expect(deps.paste).not.toHaveBeenCalled();
+  });
+
+  it("waits while Raycast is still closing, then uses the app that appears as the target", async () => {
+    const { deps } = makeDeps({ frontmostApp: sequence(RAYCAST_BUNDLE_ID, RAYCAST_BUNDLE_ID, "com.a", "com.a") });
+    expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+    expect(deps.sleep).toHaveBeenCalledWith(100);
+    expect(deps.paste).toHaveBeenCalledWith("Hello");
+  });
+
+  it("does not enforce when the target stays unknown (Raycast never leaves, or the app cannot be read)", async () => {
+    for (const frontmostApp of [
+      sequence(RAYCAST_BUNDLE_ID),
+      sequence(undefined),
+      sequence(new Error("no api")),
+      sequence("com.a", undefined),
+      sequence("com.a", new Error("no api")),
+    ]) {
+      const { deps } = makeDeps({ frontmostApp });
+      expect(await replaceSelection(deps, async () => "Hello")).toBe("replaced");
+      expect(deps.paste).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("an unchanged result needs no focus check and never touches the clipboard", async () => {
+    const { deps } = makeDeps({ frontmostApp: sequence("com.a", "com.b") });
+    expect(await replaceSelection(deps, async (t) => t)).toBe("unchanged");
+    expect(deps.copy).not.toHaveBeenCalled();
+    expect(deps.paste).not.toHaveBeenCalled();
   });
 });
 
