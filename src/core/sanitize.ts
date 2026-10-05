@@ -36,7 +36,8 @@ function stripInvisible(out: string, original: string): string {
 }
 
 const INPUT_TAG_OPEN = /^<input_text(?:_[0-9a-f]{8})?>\s*/i;
-const INPUT_TAG_CLOSE = /\s*<\/input_text(?:_[0-9a-f]{8})?>$/i;
+// No leading \s*: an unanchored whitespace prefix makes this quadratic on long whitespace runs; trim() handles it.
+const INPUT_TAG_CLOSE = /<\/input_text(?:_[0-9a-f]{8})?>$/i;
 
 /**
  * Small models sometimes echo the wrapper tags. The per-call tag name never occurs in the original

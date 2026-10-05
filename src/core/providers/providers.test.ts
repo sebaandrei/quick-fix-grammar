@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { estimateMaxTokens } from "./anthropic";
 import { APP_TITLE, APP_URL } from "./attribution";
 import { createProvider } from "./index";
-import { isFixedTemperatureModel, isOfficialBaseUrl, supportsMinimalReasoning } from "./openai";
+import {
+  estimateMaxTokens as estimateOpenAIMaxTokens,
+  isFixedTemperatureModel,
+  isOfficialBaseUrl,
+  supportsMinimalReasoning,
+} from "./openai";
 import { ProviderError, type LLMProvider } from "./types";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -519,6 +524,40 @@ describe("openai model handling", () => {
 
   it("an unknown provider value throws a clear error instead of returning undefined", () => {
     expect(() => createProvider({ provider: "nope" as never, apiKey: "k" })).toThrow(/Unknown provider: nope/);
+  });
+
+  it("caps generated tokens: max_completion_tokens for OpenAI gpt-5/o, max_tokens elsewhere", async () => {
+    fetchMock.mockImplementation(async () => openaiOk("x"));
+    const user = "u".repeat(1000);
+    const cap = estimateOpenAIMaxTokens(user.length);
+    const body = (i: number) => JSON.parse(fetchMock.mock.calls[i][1].body);
+
+    await createProvider({ provider: "openai", apiKey: "k" }).complete({ ...req, user, model: "gpt-5-mini" });
+    expect(body(0)).toMatchObject({ max_completion_tokens: cap });
+    expect(body(0).max_tokens).toBeUndefined();
+
+    await createProvider({ provider: "openai", apiKey: "k" }).complete({ ...req, user, model: "gpt-4.1-mini" });
+    expect(body(1)).toMatchObject({ max_tokens: cap });
+    expect(body(1).max_completion_tokens).toBeUndefined();
+
+    await createProvider({ provider: "openrouter", apiKey: "k" }).complete({
+      ...req,
+      user,
+      model: "google/gemini-3.1-flash-lite",
+    });
+    expect(body(2)).toMatchObject({ max_tokens: cap });
+  });
+
+  it("estimateMaxTokens is generous (reasoning tokens count), monotonic, floored and capped", () => {
+    expect(estimateOpenAIMaxTokens(0)).toBe(4096);
+    expect(estimateOpenAIMaxTokens(4000)).toBeGreaterThan(4096);
+    expect(estimateOpenAIMaxTokens(1_000_000)).toBe(16384);
+    let prev = 0;
+    for (const n of [0, 100, 1000, 4000, 20000]) {
+      const v = estimateOpenAIMaxTokens(n);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
   });
 
   it("whitespace/trailing-slash official baseUrl still gets official behavior", async () => {

@@ -136,3 +136,14 @@ describe("sanitize with mode", () => {
     expect(sanitize(output, original, { mode })).toBe(expected);
   });
 });
+
+describe("sanitize performance", () => {
+  it("stays fast on very long whitespace runs (no quadratic backtracking)", () => {
+    for (const filler of [" ", "\t", " \n"]) {
+      const start = performance.now();
+      sanitize(`start${filler.repeat(300_000)}end`, "start end");
+      sanitize(`${filler.repeat(300_000)}</input_text_ab12cd34>`, "x");
+      expect(performance.now() - start).toBeLessThan(500);
+    }
+  });
+});
