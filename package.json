@@ -194,6 +194,6 @@
     "lint": "ray lint",
     "test": "vitest run --passWithNoTests",
     "bench": "tsx eval/bench.ts",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "ray publish"
   }
 }
