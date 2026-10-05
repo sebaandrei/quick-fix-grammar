@@ -122,6 +122,10 @@ describe("validateConfig", () => {
     return undefined;
   };
 
+  it("rejects an unknown provider value (stale preference)", () => {
+    const cfg = { ...buildConfig(base), provider: "removed-provider" as never };
+    expect(kindOf(() => validateConfig(cfg))).toBe("unknown_provider");
+  });
   it("accepts openrouter, openai and anthropic with just a key", () => {
     expect(kindOf(() => validateConfig(buildConfig({ ...base, provider: "openrouter" })))).toBeUndefined();
     expect(kindOf(() => validateConfig(buildConfig(base)))).toBeUndefined();
@@ -153,6 +157,27 @@ describe("levelToMode", () => {
   });
 });
 
+describe("modelFor feeds validateConfig", () => {
+  const resolve = (prefs: RawPreferences & { model?: string }) => {
+    const cfg = buildConfig(prefs);
+    validateConfig(cfg, modelFor({ ...prefs, baseUrl: cfg.baseUrl }));
+  };
+  it("openai-compatible on OpenRouter or Google needs no model, on a local host it does", () => {
+    const compat = { provider: "openai-compatible", apiKey: "k" } as const;
+    expect(() => resolve({ ...compat, baseUrl: "https://openrouter.ai/api/v1" })).not.toThrow();
+    expect(() =>
+      resolve({ ...compat, baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/" }),
+    ).not.toThrow();
+    expect(() => resolve({ ...compat, baseUrl: "http://localhost:11434/v1" })).toThrow(/Default Model/);
+    expect(() => resolve({ ...compat, baseUrl: "http://localhost:11434/v1", defaultModel: "llama3" })).not.toThrow();
+  });
+  it("openrouter, openai and anthropic need only a key", () => {
+    for (const provider of ["openrouter", "openai", "anthropic"] as const) {
+      expect(() => resolve({ provider, apiKey: "k" })).not.toThrow();
+    }
+  });
+});
+
 describe("manifest", () => {
   const manifest = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
     preferences: { name: string; default?: string; data?: { value: string }[] }[];
@@ -161,5 +186,23 @@ describe("manifest", () => {
     const provider = manifest.preferences.find((p) => p.name === "provider");
     expect(provider?.data?.map((d) => d.value).sort()).toEqual([...PROVIDER_IDS].sort());
     expect(provider?.default).toBe("openrouter");
+  });
+  it("every command has a source file and only reads preferences the code knows", () => {
+    const withCommands = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+      commands: { name: string; preferences?: { name: string }[] }[];
+    };
+    for (const c of withCommands.commands) {
+      expect(() => readFileSync(join(process.cwd(), "src", `${c.name}.tsx`), "utf8")).not.toThrow();
+      for (const p of c.preferences ?? []) expect(["model", "targetLanguage"]).toContain(p.name);
+    }
+  });
+  it("level and englishVariant dropdowns offer exactly what buildConfig accepts", () => {
+    const values = (name: string) =>
+      manifest.preferences
+        .find((p) => p.name === name)
+        ?.data?.map((d) => d.value)
+        .sort();
+    expect(values("level")).toEqual(["fix-improve", "fix-only"]);
+    expect(values("englishVariant")).toEqual(["uk", "us"]);
   });
 });

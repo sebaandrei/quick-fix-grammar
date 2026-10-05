@@ -21,7 +21,7 @@ export class SelectionReadError extends Error {
   }
 }
 
-export type ConfigErrorKind = "missing_api_key" | "missing_base_url" | "missing_model";
+export type ConfigErrorKind = "unknown_provider" | "missing_api_key" | "missing_base_url" | "missing_model";
 
 export class ConfigError extends Error {
   readonly kind: ConfigErrorKind;
@@ -34,6 +34,10 @@ export class ConfigError extends Error {
 }
 
 const CONFIG_MESSAGES: Record<ConfigErrorKind, UserMessage> = {
+  unknown_provider: {
+    title: "Provider not set",
+    message: "The Provider preference has an unknown value. Choose a provider in the extension preferences.",
+  },
   missing_api_key: {
     title: "API key missing",
     message: "Set your API key in the extension preferences.",
@@ -48,28 +52,54 @@ const CONFIG_MESSAGES: Record<ConfigErrorKind, UserMessage> = {
   },
 };
 
+const MAX_DETAIL_CHARS = 200;
+
+/** One short sentence from a provider error message, safe to show in a HUD. */
+function shortDetail(message: string): string {
+  const text = message.replace(/\s+/g, " ").trim();
+  if (!text) return "The provider returned an unexpected or empty response.";
+  const clipped = text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}…` : text;
+  return /[.!?…]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
 function providerMessage(err: ProviderError): UserMessage {
   const kind = err.kind;
   switch (kind) {
     case "auth":
+      if (err.status === 403) {
+        return {
+          title: "Access denied",
+          message:
+            "The provider denied access (403): the key may lack access to this model, or the provider's moderation blocked the text.",
+        };
+      }
       return {
         title: "Invalid API key",
         message: "Invalid API key or no access to this model. Check your key and model in the extension preferences.",
+      };
+    case "billing":
+      return {
+        title: "Out of credits",
+        message: "The provider says payment is required. Add credits or check billing with your provider.",
       };
     case "rate_limit":
       return { title: "Rate limited", message: "Too many requests. Wait a moment and try again." };
     case "timeout":
       return { title: "Request timed out", message: "The provider took too long to respond. Try again." };
     case "network":
-      return { title: "Network error", message: "Could not reach the provider. Check your connection and base URL." };
+      return {
+        title: "Network error",
+        message:
+          "Could not reach the provider. Check your connection (and the Base URL, if you use OpenAI-compatible).",
+      };
     case "bad_response":
-      return { title: "Bad response", message: "The provider returned an unexpected or empty response. Try again." };
+      return { title: "Bad response", message: `${shortDetail(err.message)} Try again, or try a different model.` };
     case "aborted":
       return { title: "Cancelled", message: "The request was cancelled." };
     case "request":
       return {
         title: "Request rejected",
-        message: `The provider rejected the request (${err.message}). Check the model name and base URL.`,
+        message: `The provider rejected the request (${err.message}). Check that the model name exists for the selected provider.`,
       };
     default: {
       const unreachable: never = kind;

@@ -1,5 +1,7 @@
 # Model candidates (investigation, 2026-10-05)
 
+> Status: historical, superseded by `docs/models.md` (decision 2026-10-05). The prices and notes below were not updated after the benchmark, and "current defaults" means the earlier OpenAI and Anthropic defaults.
+
 Goal: smaller, cheaper models than the current defaults (`gpt-5-mini`, `claude-haiku-4-5-20251001`) for Fix, Shorten, Tone and Translate. Prices are USD per 1M tokens (input / output) from provider pricing pages and OpenRouter's public model list. OpenRouter figures are the cheapest listed provider and differ by provider, so re-check before relying on them. This document is the pre-benchmark shortlist. **The decision is in `docs/models.md`: Gemini 3.1 Flash-Lite (`google/gemini-3.1-flash-lite`).** The price and capability notes below are dated 2026-10-05 and were not updated after the bench.
 
 ## Cost does not decide this
@@ -61,4 +63,4 @@ npm run bench -- --runs 5 --models "openai:gpt-5-nano,openai:gpt-4.1-nano,openai
 
 Run `npm run bench -- --dry-run` first to check the setup without spending anything. For a fast first pass use `--runs 2 --filter latency-ac` (the 100-word Fix sample) to drop slow models before the full run.
 
-Then pick defaults per mode and record them in `docs/models.md`. If a default changes, follow the checklist in `AGENTS.md`.
+The decision is recorded in `docs/models.md`. If a default changes, follow the checklist in `AGENTS.md`.

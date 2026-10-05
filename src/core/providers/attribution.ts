@@ -1,6 +1,6 @@
 /**
  * App attribution for OpenRouter, so spending shows up under this app's name instead of "Unknown".
- * Sent only to openrouter.ai (never to other hosts) and carries no user text.
+ * Sent only to openrouter.ai and its subdomains (never to other hosts) and carries no user text.
  * `hidden` keeps a newly created app out of OpenRouter's public rankings and marketplace; drop it
  * if the project should be listed publicly.
  */

@@ -15,6 +15,19 @@ const PREAMBLE = /^(?:here(?:'s| is| are)|sure|certainly|of course|okay|ok|below
 /** Elisions ('Twas, '90s, 'em) start with an apostrophe, not an opening quote. */
 const ELISION = /^(?:\d\d|tis\b|twas\b|twere\b|em\b|cause\b|round\b)/i;
 
+const INPUT_TAG_OPEN = /^<input_text(?:_[0-9a-f]{8})?>\s*/i;
+const INPUT_TAG_CLOSE = /\s*<\/input_text(?:_[0-9a-f]{8})?>$/i;
+
+/**
+ * Small models sometimes echo the wrapper tags. The per-call tag name never occurs in the original
+ * (inputTagFor guarantees it), so any leading/trailing input_text tag is ours, unless the original
+ * itself mentions input_text.
+ */
+function stripInputTags(out: string, original: string): string {
+  if (/input_text/i.test(original)) return out;
+  return out.replace(INPUT_TAG_OPEN, "").replace(INPUT_TAG_CLOSE, "");
+}
+
 function stripPreamble(out: string, original: string, mode?: ModeId): string {
   // Translate output is a different text, so a leading "Here is ...:" may be real content.
   if (mode === "translate") return out;
@@ -48,7 +61,7 @@ function stripQuotes(out: string, original: string): string {
 }
 
 /**
- * Clean model output: strip preambles, code fences and wrapping quotes the input
+ * Clean model output: strip echoed input tags, preambles, code fences and wrapping quotes the input
  * didn't have, and re-apply the original's leading/trailing whitespace.
  */
 export function sanitize(output: string, original: string, opts?: { mode?: ModeId }): string {
@@ -56,6 +69,7 @@ export function sanitize(output: string, original: string, opts?: { mode?: ModeI
   const trail = original.length > lead.length ? (/\s*$/.exec(original)?.[0] ?? "") : "";
 
   let out = output.trim();
+  out = stripInputTags(out, original).trim();
   out = stripPreamble(out, original, opts?.mode).trim();
   out = stripFences(out, original).trim();
   out = stripQuotes(out, original).trim();

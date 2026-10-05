@@ -1,5 +1,5 @@
 import { attributionHeaders } from "./attribution";
-import { joinUrl, postJson } from "./http";
+import { errorForStatus, joinUrl, postJson } from "./http";
 import { ProviderError, type CompleteRequest, type LLMProvider } from "./types";
 
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -26,6 +26,36 @@ export function isOfficialBaseUrl(baseUrl: string): boolean {
 
 interface OpenAIResponse {
   choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
+  /** OpenRouter can answer HTTP 200 with a top-level error object and no choices. */
+  error?: { message?: unknown; code?: unknown };
+}
+
+function errorFromBody(error: NonNullable<OpenAIResponse["error"]>): ProviderError {
+  const message = typeof error.message === "string" ? error.message : "The provider reported an error.";
+  const code = typeof error.code === "number" ? error.code : Number(error.code);
+  // A numeric code is an HTTP-style status (402, 429, ...): reuse the status mapping.
+  return Number.isInteger(code) && code >= 400 && code < 600
+    ? errorForStatus(code, message)
+    : new ProviderError("bad_response", `The provider reported an error: ${message.slice(0, 300)}`);
+}
+
+function finishReasonError(finish: unknown): ProviderError | undefined {
+  switch (finish) {
+    // Only these mean the model finished its answer; a missing reason is tolerated because some hosts omit it.
+    case undefined:
+    case null:
+    case "stop":
+    case "tool_calls":
+      return undefined;
+    case "length":
+      return new ProviderError("bad_response", "The response was cut off because the model hit its token limit.");
+    case "content_filter":
+      return new ProviderError("bad_response", "The response was blocked by the provider's content filter.");
+    case "error":
+      return new ProviderError("bad_response", "The provider failed mid-response, so the text may be incomplete.");
+    default:
+      return new ProviderError("bad_response", `The response ended unexpectedly (finish reason: ${String(finish)}).`);
+  }
 }
 
 export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
@@ -53,14 +83,10 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
         req.signal,
       )) as OpenAIResponse | null;
 
+      if (json?.error) throw errorFromBody(json.error);
       const choice = Array.isArray(json?.choices) ? json.choices[0] : undefined;
-      const finish = choice?.finish_reason;
-      if (finish === "length") {
-        throw new ProviderError("bad_response", "The response was cut off because the model hit its token limit.");
-      }
-      if (finish === "content_filter") {
-        throw new ProviderError("bad_response", "The response was blocked by the provider's content filter.");
-      }
+      const finishError = finishReasonError(choice?.finish_reason);
+      if (finishError) throw finishError;
       const content = choice?.message?.content;
       if (typeof content !== "string" || content.trim().length === 0) {
         throw new ProviderError("bad_response", "Response did not contain message content.");

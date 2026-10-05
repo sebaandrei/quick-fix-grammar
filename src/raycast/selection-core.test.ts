@@ -1,3 +1,4 @@
+import { MODE_IDS } from "../core/modes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProviderError } from "../core/providers/types";
@@ -95,11 +96,14 @@ describe("replaceSelection", () => {
     expect(deps.clear).not.toHaveBeenCalled();
   });
 
-  it("clears only when the snapshot was genuinely empty", async () => {
-    const { deps } = makeDeps({ clip: { text: "" } });
-    await replaceSelection(deps, async () => "Hello");
-    expect(deps.clear).toHaveBeenCalledTimes(1);
-    expect(deps.copy).not.toHaveBeenCalled();
+  it("an empty snapshot (empty or unreadable clipboard such as an image) is never cleared and is reported", async () => {
+    for (const clip of [{ text: "" }, {}, { text: undefined, html: "", file: "" }]) {
+      const { deps } = makeDeps({ clip });
+      const outcome = await replaceSelection(deps, async () => "Hello");
+      expect(outcome).toBe("replaced_clipboard_not_restored");
+      expect(deps.clear).not.toHaveBeenCalled();
+      expect(deps.copy).not.toHaveBeenCalled();
+    }
   });
 
   it("reports failed restore after a successful paste", async () => {
@@ -139,7 +143,9 @@ describe("replaceSelection", () => {
     expect(deps.paste).not.toHaveBeenCalled();
     expect(deps.copy).not.toHaveBeenCalled();
     expect(deps.sleep).not.toHaveBeenCalled();
-    expect(hudFor(out, labelsFor("shorten"))).toBe("No changes");
+    expect(hudFor(out, labelsFor("shorten"))).toBe("The model returned the text unchanged");
+    expect(hudFor(out, labelsFor("fix-only"))).toBe("No changes needed");
+    expect(hudFor(out, labelsFor("translate"))).toMatch(/not translated/);
   });
 
   it("selection errors propagate before any paste", async () => {
@@ -181,6 +187,9 @@ describe("readSelection", () => {
 });
 
 describe("labels", () => {
+  it("covers every mode", () => {
+    for (const id of MODE_IDS) expect(labelsFor(id).progress).toBeTruthy();
+  });
   it.each([
     ["fix-only", "Fixing…", "Fixed ✓"],
     ["fix-improve", "Fixing…", "Fixed ✓"],
@@ -189,7 +198,7 @@ describe("labels", () => {
     ["tone-casual", "Rewriting…", "Rewritten ✓"],
     ["tone-direct", "Rewriting…", "Rewritten ✓"],
   ] as const)("%s", (mode, progress, done) => {
-    expect(labelsFor(mode)).toEqual({ progress, done });
+    expect(labelsFor(mode)).toMatchObject({ progress, done });
     expect(hudFor("replaced", labelsFor(mode))).toBe(done);
   });
 });

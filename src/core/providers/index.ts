@@ -3,29 +3,33 @@ import { OPENROUTER_BASE_URL } from "./attribution";
 import { createOpenAIProvider } from "./openai";
 import { ProviderError, type LLMProvider, type ProviderId } from "./types";
 
-/** @deprecated Use ProviderId. */
-export type ProviderName = ProviderId;
-
 export interface ProviderConfig {
   provider: ProviderId;
   apiKey: string;
   baseUrl?: string;
 }
 
+/**
+ * `baseUrl` is honored only by `openai-compatible`. Every other provider has a fixed endpoint, so a stale
+ * or foreign URL (left over from another provider setting) can never receive the key and the text.
+ */
 export function createProvider(cfg: ProviderConfig): LLMProvider {
   switch (cfg.provider) {
     case "openrouter":
-      // Fixed endpoint: a stale baseUrl preference must never redirect the key and text elsewhere.
       return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: OPENROUTER_BASE_URL });
     case "anthropic":
-      return createAnthropicProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
+      return createAnthropicProvider({ apiKey: cfg.apiKey });
+    case "openai":
+      return createOpenAIProvider({ apiKey: cfg.apiKey });
     case "openai-compatible":
       if (!cfg.baseUrl?.trim()) {
         throw new ProviderError("request", "Base URL is required for OpenAI-compatible providers");
       }
       return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
-    case "openai":
-      return createOpenAIProvider({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
+    default: {
+      const unknown: never = cfg.provider;
+      throw new Error(`Unknown provider: ${String(unknown)}`);
+    }
   }
 }
 

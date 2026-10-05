@@ -13,6 +13,8 @@ export function errorForStatus(status: number, detail: string): ProviderError {
   const d = detail.slice(0, MAX_DETAIL_CHARS).trim();
   if (status === 401 || status === 403)
     return new ProviderError("auth", `Authentication failed (${status}). ${d}`.trim(), status);
+  if (status === 402) return new ProviderError("billing", `Payment required (402). ${d}`.trim(), status);
+  if (status === 408) return new ProviderError("timeout", `Request timed out (408). ${d}`.trim(), status);
   if (status === 429) return new ProviderError("rate_limit", `Rate limited (429). ${d}`.trim(), status);
   if (status === 400 || status === 404 || status === 422)
     return new ProviderError("request", `Request rejected by the provider (${status}). ${d}`.trim(), status);
@@ -27,7 +29,7 @@ function abortError(timedOut: boolean, cause: unknown): ProviderError {
 
 /**
  * POST JSON with a timeout combined with an optional caller signal.
- * Throws ProviderError (timeout / aborted / network / auth / rate_limit / request / bad_response).
+ * Throws ProviderError (timeout / aborted / network / auth / billing / rate_limit / request / bad_response).
  * Returns the parsed JSON body.
  */
 export async function postJson(

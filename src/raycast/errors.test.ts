@@ -40,9 +40,10 @@ describe("toUserMessage", () => {
     ["rate_limit", "Rate limited", /Too many requests/],
     ["timeout", "Request timed out", /too long/],
     ["network", "Network error", /Could not reach the provider/],
-    ["bad_response", "Bad response", /unexpected or empty/],
+    ["billing", "Out of credits", /Add credits or check billing/],
+    ["bad_response", "Bad response", /detail 404 model not found\. Try again, or try a different model/],
     ["aborted", "Cancelled", /cancelled/],
-    ["request", "Request rejected", /model name and base URL/],
+    ["request", "Request rejected", /model name exists for the selected provider/],
   ];
   it.each(cases)("provider %s", (kind, title, re) => {
     const m = toUserMessage(new ProviderError(kind, "detail 404 model not found"));
@@ -50,6 +51,22 @@ describe("toUserMessage", () => {
     expect(m.message).toMatch(re);
   });
 
+  it("403 is reported as access denied (moderation or model access), not an invalid key", () => {
+    const m = toUserMessage(new ProviderError("auth", "forbidden", 403));
+    expect(m.title).toBe("Access denied");
+    expect(m.message).toMatch(/moderation/);
+    expect(toUserMessage(new ProviderError("auth", "nope", 401)).title).toBe("Invalid API key");
+  });
+  it("bad_response shows a short, single-line provider detail", () => {
+    const long = `Request failed with status 502.\n${"x".repeat(500)}`;
+    const m = toUserMessage(new ProviderError("bad_response", long));
+    expect(m.message).not.toMatch(/\n/);
+    expect(m.message.length).toBeLessThan(300);
+    expect(toUserMessage(new ProviderError("bad_response", "")).message).toMatch(/unexpected or empty/);
+  });
+  it("network message mentions the base URL only conditionally", () => {
+    expect(toUserMessage(new ProviderError("network", "x")).message).toMatch(/if you use OpenAI-compatible/);
+  });
   it("auth message has no status code", () => {
     expect(toUserMessage(new ProviderError("auth", "x", 401)).message).not.toMatch(/40\d/);
   });

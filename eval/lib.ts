@@ -1,6 +1,7 @@
 /** Pure scoring / stats helpers for eval/bench.ts. No I/O, no network. */
 
 import { isModeId, type EnglishVariant, type ModeId } from "../src/core/modes";
+import { isOpenRouterUrl } from "../src/core/providers/attribution";
 import type { ProviderId } from "../src/core/providers/types";
 
 export interface Sample {
@@ -76,6 +77,8 @@ export function runChecks(sample: Sample, output: string): CheckResult[] {
   // keep-header: the input legitimately starts with a "Here is ...:" style header, so one in the output is correct.
   if (!tags.has("keep-header")) add("noPreamble", !hasPreamble(output));
   add("noWrapper", !isWrapped(sample.input, output));
+  // Our own wrapper tag must never leak into the output (unless the sample text itself mentions it).
+  if (!/input_text/i.test(sample.input)) add("noInputTag", !/input_text/i.test(output), "echoed the input wrapper tag");
   add("noCedilla", !CEDILLA.test(output), "uses cedilla s/t instead of comma-below");
 
   if (sample.expected !== undefined) add("expected", out === norm(sample.expected));
@@ -165,14 +168,7 @@ export function envKeyFor(spec: ModelSpec): string {
   if (spec.provider === "openrouter") return "OPENROUTER_API_KEY";
   if (spec.provider === "openai") return "OPENAI_API_KEY";
   if (spec.provider === "anthropic") return "ANTHROPIC_API_KEY";
-  let host = "";
-  try {
-    host = new URL(spec.baseUrl ?? "").hostname.toLowerCase();
-  } catch {
-    // no/invalid base URL: fall through to the generic key
-  }
-  const isOpenRouter = host === "openrouter.ai" || host.endsWith(".openrouter.ai");
-  return isOpenRouter ? "OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
+  return isOpenRouterUrl(spec.baseUrl ?? "") ?"OPENROUTER_API_KEY" : "OPENAI_COMPATIBLE_API_KEY";
 }
 
 export interface CallError {
@@ -199,6 +195,39 @@ export function isFatalCallError(e: CallError): boolean {
   return e.kind === "auth" || e.kind === "request";
 }
 
+export interface Attempt {
+  output: string | null;
+  error?: CallError;
+  /** Characters sent in this attempt only (so retries are not double-counted in cost). */
+  inChars: number;
+}
+
+export interface RetriedCall extends Attempt {
+  /** Latency of the final attempt only: a 429 rejection must not become a latency sample. */
+  latencyMs: number;
+  retries: number;
+}
+
+/**
+ * Runs `attempt`, retrying rate-limited (429) results after each `backoffMs` wait. Only the final attempt's
+ * outcome, latency and character count are returned; after the last wait the 429 itself is the result.
+ * Other errors are never retried. `sleep` and `now` are injected so this is testable without real time.
+ */
+export async function callWithRetry(
+  attempt: () => Promise<Attempt>,
+  opts: { backoffMs: readonly number[]; sleep: (ms: number) => Promise<void>; now: () => number; onRetry?: () => void },
+): Promise<RetriedCall> {
+  for (let retries = 0; ; retries++) {
+    const t0 = opts.now();
+    const result = await attempt();
+    const latencyMs = opts.now() - t0;
+    if (result.error?.kind !== "rate_limit" || retries >= opts.backoffMs.length)
+      return { ...result, latencyMs, retries };
+    opts.onRetry?.();
+    await opts.sleep(opts.backoffMs[retries]);
+  }
+}
+
 export interface CallRecord {
   sampleId: string;
   mode: ModeId;
@@ -206,6 +235,8 @@ export interface CallRecord {
   latencyMs: number;
   output: string | null;
   error?: CallError;
+  /** Rate-limit (429) retries used before this call's final outcome. */
+  retries: number;
   inputTokens: number;
   outputTokens: number;
   costUSD: number | null;
@@ -218,22 +249,33 @@ export interface ModelSummary {
   errors: number;
   errorRate: number;
   passRate: number;
-  /** Latency percentiles include errored calls (a timeout is a slow call, not a missing one). */
+  /**
+   * Latency percentiles cover successful calls and timeouts (a timeout is a slow call). Other errors (rate limits,
+   * auth, bad requests) return instantly and say nothing about the model's speed, so they are left out.
+   */
   p50: number;
   p95: number;
   meanCostUSD: number | null;
-  /** p95 over samples tagged "latency-ac" (the ~100-word Fix input), errored calls included. */
+  /** p95 over samples tagged "latency-ac" (the ~100-word Fix input), same population as p50/p95. */
   acP95: number | null;
   /** False when any latency-ac call errored: the AC verdict then rests on failed calls and cannot be trusted. */
   acReliable: boolean;
   checkFailures: Record<string, number>;
+  /** Total rate-limit retries across all calls (hidden rate-limit pressure otherwise). */
+  retries: number;
+}
+
+/** True when a call says something about the model's speed: it succeeded or timed out. */
+export function countsForLatency(r: Pick<CallRecord, "error">): boolean {
+  return !r.error || r.error.kind === "timeout";
 }
 
 export function summarize(records: CallRecord[], acSampleIds: Set<string>): ModelSummary {
   const ok = records.filter((r) => !r.error);
-  const lat = records.map((r) => r.latencyMs);
+  const lat = records.filter(countsForLatency).map((r) => r.latencyMs);
   const costs = ok.map((r) => r.costUSD).filter((c): c is number => c !== null);
   const acRecs = records.filter((r) => acSampleIds.has(r.sampleId));
+  const acLat = acRecs.filter(countsForLatency).map((r) => r.latencyMs);
   const checkFailures: Record<string, number> = {};
   for (const r of records)
     for (const c of failedChecks(r.checks)) checkFailures[c.name] = (checkFailures[c.name] ?? 0) + 1;
@@ -245,14 +287,10 @@ export function summarize(records: CallRecord[], acSampleIds: Set<string>): Mode
     p50: percentile(lat, 50),
     p95: percentile(lat, 95),
     meanCostUSD: costs.length ? mean(costs) : null,
-    acP95: acRecs.length
-      ? percentile(
-          acRecs.map((r) => r.latencyMs),
-          95,
-        )
-      : null,
+    acP95: acLat.length ? percentile(acLat, 95) : null,
     acReliable: acRecs.length > 0 && acRecs.every((r) => !r.error),
     checkFailures,
+    retries: records.reduce((n, r) => n + r.retries, 0),
   };
 }
 

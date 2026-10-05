@@ -33,6 +33,12 @@ const providers: [string, () => LLMProvider, (t: string) => Response][] = [
     openaiOk,
   ],
   ["anthropic", () => createProvider({ provider: "anthropic", apiKey: "k" }), anthropicOk],
+  [
+    "openrouter",
+    // a stale baseUrl must be ignored, so pass one that would fail the request if it were used
+    () => createProvider({ provider: "openrouter", apiKey: "k", baseUrl: "http://stale.invalid/v1" }),
+    openaiOk,
+  ],
 ];
 
 describe.each(providers)("%s contract", (_n, make, ok) => {
@@ -245,6 +251,50 @@ describe("response edge cases", () => {
     expect(err.message).toMatch(msg);
   });
 
+  it.each([
+    ["error", /failed mid-response/],
+    ["something_new", /finish reason: something_new/],
+  ])("openai finish_reason %s -> bad_response", async (finish_reason, msg) => {
+    fetchMock.mockResolvedValue(json({ choices: [{ message: { content: "partial" }, finish_reason }] }));
+    const err = await openai()
+      .complete(req)
+      .catch((e) => e);
+    expect(err).toMatchObject({ kind: "bad_response" });
+    expect(err.message).toMatch(msg);
+  });
+
+  it("openai accepts stop and a missing finish_reason", async () => {
+    fetchMock.mockImplementation(async () =>
+      json({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }),
+    );
+    await expect(openai().complete(req)).resolves.toBe("ok");
+    fetchMock.mockImplementation(async () => json({ choices: [{ message: { content: "ok" } }] }));
+    await expect(openai().complete(req)).resolves.toBe("ok");
+  });
+
+  it.each([
+    [402, "billing"],
+    [429, "rate_limit"],
+    [401, "auth"],
+    [400, "request"],
+    [503, "bad_response"],
+  ])("openai HTTP 200 with a top-level error code %s -> %s", async (code, kind) => {
+    fetchMock.mockResolvedValue(json({ error: { code, message: "provider says no" } }));
+    const err = await openai()
+      .complete(req)
+      .catch((e) => e);
+    expect(err).toMatchObject({ name: "ProviderError", kind });
+    expect(err.message).toMatch(/provider says no/);
+  });
+
+  it("openai HTTP 200 with a non-numeric error code -> bad_response carrying the message", async () => {
+    fetchMock.mockResolvedValue(json({ error: { code: "upstream", message: "no provider available" } }));
+    await expect(openai().complete(req)).rejects.toMatchObject({
+      kind: "bad_response",
+      message: expect.stringMatching(/no provider available/),
+    });
+  });
+
   it("openai finish_reason stop and unknown pass", async () => {
     fetchMock.mockResolvedValue(json({ choices: [{ message: { content: "ok" }, finish_reason: "tool_calls" }] }));
     await expect(openai().complete(req)).resolves.toBe("ok");
@@ -420,9 +470,35 @@ describe("openai model handling", () => {
     }
   });
 
+  it("openai and anthropic ignore a stale baseUrl, so the key only goes to their own endpoints", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("anthropic")
+        ? json({ content: [{ type: "text", text: "x" }], stop_reason: "end_turn" })
+        : openaiOk("x"),
+    );
+    await createProvider({ provider: "openai", apiKey: "k", baseUrl: "https://evil.example/v1" }).complete({
+      ...req,
+      model: "gpt-5-mini",
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.openai.com/v1/chat/completions");
+    await createProvider({ provider: "anthropic", apiKey: "k", baseUrl: "https://evil.example/v1" }).complete({
+      ...req,
+      model: "claude-haiku-4-5-20251001",
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api.anthropic.com/v1/messages");
+  });
+
+  it("an unknown provider value throws a clear error instead of returning undefined", () => {
+    expect(() => createProvider({ provider: "nope" as never, apiKey: "k" })).toThrow(/Unknown provider: nope/);
+  });
+
   it("whitespace/trailing-slash official baseUrl still gets official behavior", async () => {
     fetchMock.mockResolvedValue(openaiOk("x"));
-    await createProvider({ provider: "openai", apiKey: "k", baseUrl: " https://api.openai.com/v1/ " }).complete({
+    await createProvider({
+      provider: "openai-compatible",
+      apiKey: "k",
+      baseUrl: " https://api.openai.com/v1/ ",
+    }).complete({
       ...req,
       model: "gpt-5-mini",
     });

@@ -24,9 +24,9 @@ The hotkeys are only suggestions. The extension does not set any, and I have not
    - **Fix & Improve Level** (`Fix only` or `Fix + Improve`) and **English Variant** (`US` or `UK`).
 3. Optionally set a **Model Override** per command, and a **Target Language** for Translate Text.
 
-**Recommended setup:** Provider OpenRouter, your OpenRouter key, and leave Default Model empty. That uses `google/gemini-3.1-flash-lite`, which gave the best results in the benchmark (`docs/models.md`).
+**Recommended setup:** Provider OpenRouter, your OpenRouter key, and leave Default Model empty. That uses `google/gemini-3.1-flash-lite`, chosen in the benchmark for reliability (no dropped sentences, a stable model) with p95 latency under 1 s (see Model choice below).
 
-For this workload (a few hundred tokens per fix), small models should cost very little, but the cost depends on your provider's current prices and how much you use it. Treat any figure as an estimate and check the provider's pricing page. `docs/models.md` has a rough per-call estimate.
+For this workload (a few hundred tokens per fix), small models should cost very little, but the cost depends on your provider's current prices and how much you use it. Treat any figure as an estimate and check the provider's pricing page. Model choice below has a rough per-call estimate.
 
 ## Behaviour and limits
 
@@ -39,7 +39,7 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 
 ## Privacy
 
-- Your selected text is sent **only** to the provider you configure (the OpenAI or Anthropic API, or the base URL you set). It goes nowhere else, and there is no server run by this extension.
+- Your selected text is sent **only** to the provider you configure: OpenRouter (`https://openrouter.ai/api/v1`, which forwards it to the model's host, for example Google for Gemini), the OpenAI or Anthropic API, or the Base URL you set for an OpenAI-compatible provider. It goes nowhere else, and there is no server run by this extension. OpenRouter lets you restrict which hosts see your prompts (data and provider-routing settings in your OpenRouter account).
 - The extension does not log or store your text or the results, and has no analytics.
 - Reading the selection and pasting the result go through the macOS clipboard. The result is briefly on the clipboard, so the system clipboard and any clipboard manager you run may see it (and may keep it) before your previous contents are restored.
 - With the OpenRouter provider (or an OpenAI-compatible base URL on `openrouter.ai`), requests also carry OpenRouter's app-attribution headers (the app name "Quick Fix Grammar" and this project's URL, marked hidden from public rankings) so usage shows under that name in your OpenRouter dashboard. They contain no text from you and are not sent to any other host.
@@ -47,6 +47,19 @@ For this workload (a few hundred tokens per fix), small models should cost very 
 - The only thing the extension stores locally is the id of the last tone you picked in Change Tone, in Raycast's local storage.
 - Your API key is kept in Raycast's preferences (password field).
 - Check your provider's own data-retention policy: they may retain API requests for a period.
+
+## Model choice
+
+Benchmarked on 2026-10-05 through OpenRouter: 51 samples (English and Romanian fixes, code and markdown, already-correct text, prompt-injection attempts), 2 runs each. Cost is an estimate (characters / 4 tokens at the providers' listed prices) for 3,000 calls a month; check current prices.
+
+| Model                                      | Pass rate | p95 (100-word Fix)           | Est. cost / month |
+| ------------------------------------------ | --------- | ---------------------------- | ----------------- |
+| **google/gemini-3.1-flash-lite** (default) | 94%       | 0.9 s                        | $0.47             |
+| google/gemini-2.5-flash-lite               | 96%       | 0.8 s                        | $0.17             |
+| mistralai/mistral-small-2603               | 86%       | 1.0 s                        | $0.26             |
+| openai/gpt-4.1-nano                        | 84%       | 4.5 s (fails the 2 s target) | $0.17             |
+
+Gemini 3.1 Flash-Lite is the default for reliability: it kept every sentence on the prompt-injection sample and passed every Romanian sample, and it is a stable model. Gemini 2.5 Flash-Lite scores 2 points higher and is cheaper, but it dropped text on that sample and Google lists it as limited access. Mistral Small followed an injected instruction, and `gpt-4.1-nano` is too slow. All four rewrite typos inside inline code despite the instruction to leave code untouched. Gemini 3.x prices are due to rise on 2027-01-01. The full write-up (failure notes, rejected models, free-model results) was removed from the tree and is in git history (`git log -p -- docs/models.md`). Re-run the benchmark with `npm run bench` when a model or price changes.
 
 ## Development
 
@@ -58,14 +71,14 @@ npm run lint
 npm run build
 ```
 
-Core logic lives in `src/core` and has no Raycast imports, which keeps it easy to test and to reuse elsewhere. `eval/` holds a golden sample set and a benchmark for choosing models. The benchmark reads keys from the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` (for OpenRouter base URLs) and `OPENAI_COMPATIBLE_API_KEY` (for any other base URL). Models whose key is not set are skipped and listed in the report.
+Core logic lives in `src/core` and has no Raycast imports, which keeps it easy to test and to reuse elsewhere. `eval/` holds a golden sample set and a benchmark for choosing models. The benchmark reads keys from the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` (for `openrouter:` specs and OpenRouter base URLs) and `OPENAI_COMPATIBLE_API_KEY` (for any other base URL). Models whose key is not set are skipped and listed in the report.
 
 ```
 npm run bench -- --models "openai:gpt-5-mini,anthropic:claude-haiku-4-5-20251001" --runs 5
 npm run bench -- --dry-run     # fake provider, no keys
 ```
 
-See `docs/models.md` for results and `IMPLEMENTATION_PLAN.md` for the plan.
+See `IMPLEMENTATION_PLAN.md` for the plan.
 
 ## License
 

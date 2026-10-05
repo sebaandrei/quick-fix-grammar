@@ -52,7 +52,8 @@ function contentFor(snap: ClipboardSnapshot): CopyContent | undefined {
 /**
  * Snapshot clipboard -> read selection -> transform -> paste -> restore clipboard.
  * Nothing is pasted if transform throws or yields blank/unchanged text. The clipboard is only
- * touched again if a paste was attempted, and only when the snapshot was read successfully.
+ * touched again if a paste was attempted, and only when the snapshot held something restorable;
+ * it is never cleared.
  */
 export async function replaceSelection(
   deps: SelectionDeps,
@@ -83,10 +84,13 @@ export async function replaceSelection(
 
 async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): Promise<boolean> {
   try {
-    await deps.sleep(RESTORE_DELAY_MS);
+    // An empty snapshot is ambiguous: the clipboard was empty, or held something we cannot read back
+    // (an image, rich text). Either way there is nothing we can restore, so never clear (that would
+    // also drop the result for no benefit) and report that the clipboard was not restored.
     const content = contentFor(snap);
-    if (content) await deps.copy(content, { concealed: true });
-    else await deps.clear();
+    if (!content) return false;
+    await deps.sleep(RESTORE_DELAY_MS);
+    await deps.copy(content, { concealed: true });
     return true;
   } catch (err) {
     console.error("Could not restore clipboard:", err);
@@ -97,17 +101,44 @@ async function restoreClipboard(deps: SelectionDeps, snap: ClipboardSnapshot): P
 export interface ModeLabels {
   progress: string;
   done: string;
+  /** Shown when the model returned the text unchanged. */
+  unchanged: string;
 }
 
+const FIX: ModeLabels = { progress: "Fixing…", done: "Fixed ✓", unchanged: "No changes needed" };
+const TONE: ModeLabels = {
+  progress: "Rewriting…",
+  done: "Rewritten ✓",
+  unchanged: "The model returned the text unchanged",
+};
+
+/** Exhaustive over ModeId, so a new mode cannot silently inherit another mode's wording. */
+const LABELS: Record<ModeId, ModeLabels> = {
+  "fix-only": FIX,
+  "fix-improve": FIX,
+  shorten: {
+    progress: "Shortening…",
+    done: "Shortened ✓",
+    unchanged: "The model returned the text unchanged",
+  },
+  translate: {
+    progress: "Translating…",
+    done: "Translated ✓",
+    unchanged: "The model returned the text unchanged (not translated)",
+  },
+  "tone-professional": TONE,
+  "tone-friendly": TONE,
+  "tone-casual": TONE,
+  "tone-confident": TONE,
+  "tone-direct": TONE,
+};
+
 export function labelsFor(modeId: ModeId): ModeLabels {
-  if (modeId === "shorten") return { progress: "Shortening…", done: "Shortened ✓" };
-  if (modeId === "translate") return { progress: "Translating…", done: "Translated ✓" };
-  if (modeId.startsWith("tone-")) return { progress: "Rewriting…", done: "Rewritten ✓" };
-  return { progress: "Fixing…", done: "Fixed ✓" };
+  return LABELS[modeId];
 }
 
 export function hudFor(outcome: ReplaceOutcome, labels: ModeLabels): string {
-  if (outcome === "unchanged") return "No changes";
+  if (outcome === "unchanged") return labels.unchanged;
   if (outcome === "replaced_clipboard_not_restored") return `${labels.done} (clipboard could not be restored)`;
   return labels.done;
 }

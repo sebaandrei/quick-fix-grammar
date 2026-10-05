@@ -20,7 +20,12 @@ export default function Command() {
         setTones(ordered);
         setSelected(text);
       } catch (err) {
-        await closeMainWindow({ popToRootType: PopToRootType.Immediate });
+        // The error must reach the user even if closing the window fails.
+        try {
+          await closeMainWindow({ popToRootType: PopToRootType.Immediate });
+        } catch (closeErr) {
+          console.error("Could not close the window:", closeErr);
+        }
         await reportError(err);
       } finally {
         if (mounted) setLoading(false);
@@ -38,7 +43,11 @@ export default function Command() {
     } catch (err) {
       console.error("Could not save last tone:", err);
     }
-    await runNoViewCommand(tone.mode, { model: getModel(), selected });
+    try {
+      await runNoViewCommand(tone.mode, { model: getModel(), selected });
+    } catch (err) {
+      await reportError(err);
+    }
   }
 
   return (

@@ -4,6 +4,7 @@ import { createProvider } from "../core/providers";
 import { DEFAULT_MAX_CHARS, runMode } from "../core/run";
 import { toUserMessage } from "./errors";
 import { getExtensionConfig, validateConfig } from "./preferences";
+import { modelFor } from "./resolve";
 import {
   hudFor,
   labelsFor,
@@ -27,6 +28,7 @@ const deps: SelectionDeps = {
 export const readSelection = () => readSelectionWith(deps);
 
 export interface FlowOptions {
+  /** Model override for this command; the provider fallback is applied when empty. */
   model?: string;
   targetLanguage?: string;
   /** Selection captured earlier (change-tone). */
@@ -48,7 +50,15 @@ export async function reportError(err: unknown): Promise<void> {
 export async function runNoViewCommand(modeId: ModeId, opts: FlowOptions = {}): Promise<void> {
   try {
     const cfg = getExtensionConfig();
-    validateConfig(cfg, opts.model);
+    // Resolve here (idempotent for an already-resolved opts.model) so a caller that forgets the model can never
+    // send the OpenAI mode default to another provider.
+    const model = modelFor({
+      provider: cfg.provider,
+      model: opts.model,
+      defaultModel: cfg.defaultModel,
+      baseUrl: cfg.baseUrl,
+    });
+    validateConfig(cfg, model);
     const labels = labelsFor(modeId);
     await closeMainWindow({ popToRootType: PopToRootType.Immediate });
     await showToast({ style: Toast.Style.Animated, title: labels.progress });
@@ -58,7 +68,7 @@ export async function runNoViewCommand(modeId: ModeId, opts: FlowOptions = {}): 
       (text) =>
         runMode(modeId, text, {
           provider,
-          model: opts.model,
+          model,
           englishVariant: cfg.englishVariant,
           targetLanguage: opts.targetLanguage,
           maxChars: DEFAULT_MAX_CHARS,

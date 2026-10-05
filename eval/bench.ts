@@ -5,7 +5,7 @@
  *   npx tsx eval/bench.ts --dry-run          # fake provider, no keys needed
  *
  * Flags: --models <list> (or positional) | --runs N (default 3) | --filter <id-or-tag,...> | --delay <ms> (pause before each call, for rate-limited free tiers) | --dry-run | --out <dir>
- * Keys come from OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY (OPENAI_COMPATIBLE_API_KEY for other bases).
+ * Keys come from OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY (for `openrouter:` specs and OpenRouter base URLs; OPENAI_COMPATIBLE_API_KEY for other bases).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +13,7 @@ import { runMode } from "../src/core/run";
 import { createProvider } from "../src/core/providers";
 import type { CompleteRequest, LLMProvider } from "../src/core/providers/types";
 import {
+  callWithRetry,
   costUSD,
   envKeyFor,
   estimateTokens,
@@ -98,7 +99,7 @@ function renderMarkdown(
   }
   for (const [model, r] of Object.entries(results)) if (r.aborted) L.push(`Aborted early: ${model} (${r.aborted})`, "");
   L.push(
-    "Cost is an estimate (characters / 4 tokens, prices from eval/prices.json). Latency includes errored calls.",
+    "Cost is an estimate (characters / 4 tokens, prices from eval/prices.json). Latency covers successful calls and timeouts; rate-limit and auth errors are excluded.",
     "",
   );
   L.push("| Model | Pass rate | p50 | p95 | p95 (100-word Fix) | Mean cost/call | Errors | Failing checks |");
@@ -114,6 +115,11 @@ function renderMarkdown(
     L.push(
       `| ${model} | ${(s.passRate * 100).toFixed(0)}% | ${fmtMs(s.p50)} | ${fmtMs(s.p95)} | ${ac} | ${fmtCost(s.meanCostUSD)} | ${s.errors}/${s.calls} (${(s.errorRate * 100).toFixed(0)}%) | ${fails} |`,
     );
+  }
+  const retried = Object.entries(results).filter(([, r]) => r.summary.retries > 0);
+  if (retried.length) {
+    L.push("", "Rate-limit retries (each waited 3 to 20 s between attempts, which is not in the latency figures):");
+    for (const [model, r] of retried) L.push(`- ${model}: ${r.summary.retries}`);
   }
   L.push("", "## Outputs for manual review (run 1; failed checks flagged)", "");
   for (const sample of samples) {
@@ -154,6 +160,9 @@ async function main() {
   const results: Record<string, ModelResult> = {};
   const skipped: Skipped[] = [];
   const warnedPrices = new Set<string>();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  mkdirSync(args.out, { recursive: true });
+  const jsonPath = join(args.out, `${stamp}${args.dryRun ? "-dry" : ""}.json`);
 
   for (const spec of specs) {
     let base: LLMProvider;
@@ -166,7 +175,14 @@ async function main() {
         skipped.push({ model: spec.label, reason: `${keyName} is not set` });
         continue;
       }
-      base = createProvider({ provider: spec.provider, apiKey, baseUrl: spec.baseUrl });
+      try {
+        base = createProvider({ provider: spec.provider, apiKey, baseUrl: spec.baseUrl });
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        console.error(`Skipping ${spec.label}: ${reason}`);
+        skipped.push({ model: spec.label, reason });
+        continue;
+      }
     }
     if (!prices[spec.model] && !warnedPrices.has(spec.model)) {
       warnedPrices.add(spec.model);
@@ -179,34 +195,29 @@ async function main() {
       for (let run = 1; run <= args.runs; run++) {
         if (args.delay > 0) await sleep(args.delay);
         current.sample = sample;
-        let output: string | null = null;
-        let error: CallError | undefined;
-        let latencyMs = 0;
-        let m!: ReturnType<typeof metered>["m"];
-        // Rate-limited calls are retried with backoff; only the final attempt is recorded, so a 429
-        // rejection never shows up as a (fast) latency sample.
-        for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt++) {
-          const metering = metered(base);
-          m = metering.m;
-          output = null;
-          error = undefined;
-          const t0 = performance.now();
-          try {
-            output = await runMode(sample.mode, sample.input, {
-              provider: metering.provider,
-              model: spec.model,
-              englishVariant: sample.englishVariant,
-              targetLanguage: sample.targetLanguage,
-            });
-          } catch (e) {
-            error = toCallError(e);
-          }
-          latencyMs = performance.now() - t0;
-          if (error?.kind !== "rate_limit" || attempt === RATE_LIMIT_BACKOFF_MS.length) break;
-          process.stderr.write("r");
-          await sleep(RATE_LIMIT_BACKOFF_MS[attempt]);
-        }
-        const inputTokens = Math.ceil(m.inChars / 4);
+        const { output, error, latencyMs, retries, inChars } = await callWithRetry(
+          async () => {
+            const { provider, m } = metered(base);
+            try {
+              const output = await runMode(sample.mode, sample.input, {
+                provider,
+                model: spec.model,
+                englishVariant: sample.englishVariant,
+                targetLanguage: sample.targetLanguage,
+              });
+              return { output, inChars: m.inChars };
+            } catch (e) {
+              return { output: null, error: toCallError(e), inChars: m.inChars };
+            }
+          },
+          {
+            backoffMs: RATE_LIMIT_BACKOFF_MS,
+            sleep,
+            now: () => performance.now(),
+            onRetry: () => process.stderr.write("r"),
+          },
+        );
+        const inputTokens = Math.ceil(inChars / 4);
         const outputTokens = output !== null ? estimateTokens(output) : 0;
         const checks =
           output !== null ? runChecks(sample, output) : [{ name: "error", pass: false, detail: fmtError(error!) }];
@@ -217,6 +228,7 @@ async function main() {
           latencyMs,
           output,
           error,
+          retries,
           inputTokens,
           outputTokens,
           costUSD: costUSD(inputTokens, outputTokens, prices[spec.model]),
@@ -234,21 +246,26 @@ async function main() {
     }
     process.stderr.write("\n");
     results[spec.label] = { summary: summarize(records, acIds), records, ...(aborted ? { aborted } : {}) };
+    // Write after every model so a crash or Ctrl-C later in the run does not lose finished models.
+    writeFileSync(jsonPath, JSON.stringify({ stamp, runs: args.runs, dryRun: args.dryRun, skipped, results }, null, 2));
   }
   if (Object.keys(results).length === 0) throw new Error("No model could be run (missing API keys?)");
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  mkdirSync(args.out, { recursive: true });
-  const jsonPath = join(args.out, `${stamp}${args.dryRun ? "-dry" : ""}.json`);
   const mdPath = jsonPath.replace(/\.json$/, ".md");
-  writeFileSync(jsonPath, JSON.stringify({ stamp, runs: args.runs, dryRun: args.dryRun, skipped, results }, null, 2));
   const md = renderMarkdown(stamp, args.runs, results, samples, args.dryRun, skipped);
   writeFileSync(mdPath, md);
   console.log(md.split("## Outputs")[0]);
   console.log(`Wrote ${jsonPath}\nWrote ${mdPath}`);
+
+  // A run in which no model produced a single successful call is a failed run, not a benchmark result.
+  const usable = Object.values(results).some((r) => r.summary.calls > r.summary.errors);
+  if (!args.dryRun && !usable) {
+    console.error("Every call of every model failed: treat these results as unusable.");
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error(e instanceof Error ? (e.stack ?? e.message) : e);
   process.exit(1);
 });

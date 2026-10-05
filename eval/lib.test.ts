@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  callWithRetry,
   costUSD,
   envKeyFor,
   estimateTokens,
@@ -15,9 +16,12 @@ import {
   percentile,
   runChecks,
   summarize,
+  toCallError,
+  type Attempt,
   type CallRecord,
   type Sample,
 } from "./lib";
+import { ProviderError } from "../src/core/providers/types";
 import { sanitize } from "../src/core/sanitize";
 
 const base = (o: Partial<Sample>): Sample => ({ id: "x", mode: "fix-only", input: "", tags: [], ...o });
@@ -47,6 +51,7 @@ describe("stats", () => {
       latencyMs: ms,
       output: error ? null : "o",
       error: error ? { kind: "network", message: error } : undefined,
+      retries: 0,
       inputTokens: 1,
       outputTokens: 1,
       costUSD: 0.01,
@@ -59,8 +64,8 @@ describe("stats", () => {
     );
     expect(s.errors).toBe(1);
     expect(s.errorRate).toBe(0.25);
-    // errored call (0 ms here) is part of the latency distribution
-    expect(s.p50).toBe(100);
+    // the network-errored call (0 ms) says nothing about speed, so it is not part of the latency distribution
+    expect(s.p50).toBe(300);
     expect(s.p95).toBe(1500);
     expect(s.acP95).toBe(1500);
     expect(s.acReliable).toBe(true);
@@ -76,6 +81,7 @@ describe("stats", () => {
         latencyMs: ms,
         output: null,
         error: error ? { kind: "timeout", message: error } : undefined,
+        retries: 0,
         inputTokens: 1,
         outputTokens: 0,
         costUSD: null,
@@ -85,6 +91,30 @@ describe("stats", () => {
     const s = summarize([mk(900), mk(10_000, "timed out")], new Set(["ac"]));
     expect(s.acP95).toBe(10_000);
     expect(s.acReliable).toBe(false);
+  });
+  it("timeouts count as latency, rate-limit and auth errors do not, and retries are summed", () => {
+    const mk = (ms: number, kind?: string, retries = 0) =>
+      ({
+        sampleId: "ac",
+        mode: "fix-only",
+        run: 1,
+        latencyMs: ms,
+        output: kind ? null : "o",
+        error: kind ? { kind, message: "x" } : undefined,
+        retries,
+        inputTokens: 1,
+        outputTokens: 0,
+        costUSD: null,
+        checks: [],
+        pass: !kind,
+      }) as CallRecord;
+    const s = summarize([mk(800), mk(10_000, "timeout"), mk(20, "rate_limit", 3), mk(15, "auth")], new Set(["ac"]));
+    expect(s.p95).toBe(10_000);
+    expect(s.p50).toBe(800);
+    expect(s.retries).toBe(3);
+    expect(s.acReliable).toBe(false);
+    // only fast non-latency errors: no usable latency, so no AC figure instead of NaN
+    expect(summarize([mk(20, "rate_limit"), mk(15, "auth")], new Set(["ac"])).acP95).toBeNull();
   });
   it("fatal call errors are auth and request only", () => {
     expect(isFatalCallError({ kind: "auth", message: "x" })).toBe(true);
@@ -137,6 +167,80 @@ describe("envKeyFor", () => {
     expect(compat("https://notopenrouter.ai/v1")).toBe("OPENAI_COMPATIBLE_API_KEY");
     expect(compat("http://localhost:11434/v1")).toBe("OPENAI_COMPATIBLE_API_KEY");
     expect(compat(undefined)).toBe("OPENAI_COMPATIBLE_API_KEY");
+  });
+});
+
+describe("callWithRetry", () => {
+  const backoffMs = [3000, 8000, 20000];
+  /** Scripted attempts; the fake clock advances 100 ms per attempt (plus nothing for sleeps). */
+  function harness(script: (Omit<Attempt, "inChars"> & { inChars?: number })[]) {
+    let i = 0;
+    let clock = 0;
+    const sleeps: number[] = [];
+    const attempts = vi.fn(async () => {
+      const step = script[Math.min(i++, script.length - 1)];
+      clock += 100 * i; // attempt n takes 100*n ms, so the final attempt's latency is identifiable
+      return { inChars: 50, ...step };
+    });
+    const run = () =>
+      callWithRetry(attempts, {
+        backoffMs,
+        sleep: async (ms) => void sleeps.push(ms),
+        now: () => clock,
+      });
+    return { run, attempts, sleeps };
+  }
+  const limited = { output: null, error: { kind: "rate_limit", status: 429, message: "slow down" } };
+
+  it("429, 429, success: retries twice with the first two waits, and reports only the last attempt", async () => {
+    const h = harness([limited, limited, { output: "ok" }]);
+    const r = await h.run();
+    expect(h.attempts).toHaveBeenCalledTimes(3);
+    expect(h.sleeps).toEqual([3000, 8000]);
+    expect(r).toMatchObject({ output: "ok", retries: 2, inChars: 50 });
+    expect(r.error).toBeUndefined();
+    expect(r.latencyMs).toBe(300); // third attempt only
+  });
+  it("429 forever: stops after the last wait and returns the 429 itself", async () => {
+    const h = harness([limited]);
+    const r = await h.run();
+    expect(h.attempts).toHaveBeenCalledTimes(backoffMs.length + 1);
+    expect(h.sleeps).toEqual(backoffMs);
+    expect(r.error?.kind).toBe("rate_limit");
+    expect(r.retries).toBe(backoffMs.length);
+  });
+  it.each(["auth", "request", "timeout", "network", "bad_response"])("%s is never retried", async (kind) => {
+    const h = harness([{ output: null, error: { kind, message: "x" } }]);
+    const r = await h.run();
+    expect(h.attempts).toHaveBeenCalledTimes(1);
+    expect(h.sleeps).toEqual([]);
+    expect(r.retries).toBe(0);
+    expect(r.error?.kind).toBe(kind);
+  });
+  it("calls onRetry once per retry", async () => {
+    const onRetry = vi.fn();
+    let n = 0;
+    await callWithRetry(async () => (n++ < 2 ? { ...limited, inChars: 1 } : { output: "ok", inChars: 1 }), {
+      backoffMs,
+      sleep: async () => undefined,
+      now: () => 0,
+      onRetry,
+    });
+    expect(onRetry).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("toCallError", () => {
+  it("keeps kind, status and message of a ProviderError and feeds isFatalCallError", () => {
+    const e = toCallError(new ProviderError("rate_limit", "x", 429));
+    expect(e).toEqual({ kind: "rate_limit", status: 429, message: "x" });
+    expect(isFatalCallError(toCallError(new ProviderError("auth", "bad key", 401)))).toBe(true);
+    expect(isFatalCallError(e)).toBe(false);
+  });
+  it("maps plain errors, strings and odd kinds to unknown without a status", () => {
+    expect(toCallError(new Error("boom"))).toEqual({ kind: "unknown", message: "boom" });
+    expect(toCallError("oops")).toEqual({ kind: "unknown", message: "oops" });
+    expect(toCallError(Object.assign(new Error("m"), { kind: 5 })).kind).toBe("unknown");
   });
 });
 
@@ -249,6 +353,12 @@ describe("checks", () => {
     expect(failed(s, "```\nthe cat\n```")).toContain("noWrapper");
     expect(failed(s, "Sure, the cat")).toContain("noPreamble");
     expect(failed(s, "the cat")).toEqual([]);
+  });
+  it("flags an echoed wrapper tag unless the sample mentions it", () => {
+    expect(failed(base({ input: "the cat" }), "<input_text_ab12cd34>the cat</input_text_ab12cd34>")).toContain(
+      "noInputTag",
+    );
+    expect(failed(base({ input: "use <input_text> tags" }), "use <input_text> tags")).not.toContain("noInputTag");
   });
   it("code, urls, mentions, emoji preserved", () => {
     const input = "ping @bob see https://a.io/x?y=1. run `npm i` 🙏\n```js\nx()\n```";

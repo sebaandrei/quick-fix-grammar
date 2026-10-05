@@ -75,6 +75,29 @@ describe("sanitize", () => {
   });
 });
 
+const tagCases: [string, string, string, string][] = [
+  ["echoed tags", "<input_text_ab12cd34>\nHello world.\n</input_text_ab12cd34>", "hello world", "Hello world."],
+  ["echoed untagged names", "<input_text>Hello world.</input_text>", "hello world", "Hello world."],
+  ["only closing tag echoed", "Hello world.\n</input_text_ab12cd34>", "hello world", "Hello world."],
+  ["only opening tag echoed", "<input_text_ab12cd34>\nHello world.", "hello world", "Hello world."],
+  ["tags then quotes", '<input_text_ab12cd34>\n"Hello world."\n</input_text_ab12cd34>', "hello world", "Hello world."],
+  ["case-insensitive", "<INPUT_TEXT_AB12CD34>Hi</INPUT_TEXT_AB12CD34>", "hi", "Hi"],
+  [
+    "kept when the original discusses input_text",
+    "<input_text>Hi</input_text>",
+    "wrap it in <input_text> tags",
+    "<input_text>Hi</input_text>",
+  ],
+  ["unrelated tags kept", "<b>Hello</b>", "hello", "<b>Hello</b>"],
+  ["tag in the middle kept", "a </input_text_ab12cd34> b", "a b", "a </input_text_ab12cd34> b"],
+];
+
+describe("sanitize echoed input tags", () => {
+  it.each(tagCases)("%s", (_name, output, original, expected) => {
+    expect(sanitize(output, original)).toBe(expected);
+  });
+});
+
 describe("sanitize with mode", () => {
   it.each(modeCases)("%s", (_name, mode, output, original, expected) => {
     expect(sanitize(output, original, { mode })).toBe(expected);

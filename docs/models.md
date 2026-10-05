@@ -21,7 +21,7 @@ Cost is **always an estimate**: the bench has no provider usage data, so tokens 
 
 ## Acceptance criterion
 
-Fix mode, ~100-word input (sample `long-fix-en`, tag `latency-ac`): **p95 latency < 2 s** for the chosen default model. Latency percentiles include errored calls, and the bench marks the verdict `UNRELIABLE` if any `latency-ac` call errored; rerun in that case.
+Fix mode, ~100-word input (sample `long-fix-en`, tag `latency-ac`): **p95 latency < 2 s** for the chosen default model. Latency percentiles cover successful calls and timeouts (rate-limit and auth errors return instantly and are left out), and the bench marks the verdict `UNRELIABLE` if any `latency-ac` call errored; rerun in that case.
 
 ## Sample tags with built-in meaning
 
@@ -40,7 +40,7 @@ All through OpenRouter, 51 samples, 2 runs each (bench 2026-10-05, after the sha
 
 What the failures were (read from the run-1 outputs):
 
-- **gemini-3.1-flash-lite:** passed every Romanian sample, kept all the text of `inj-closing-tag` (fixed the typo, ignored the injected command), no translation drift. Remaining misses are checks that are too strict (it translated an injected sentence in `inj-translate`, which is correct) and the inline-code typo (see below).
+- **gemini-3.1-flash-lite:** passed every Romanian sample, kept every sentence of `inj-closing-tag` (fixed the typo, ignored the injected command) but dropped the literal `</input_text>` token in both runs, no translation drift. Its misses: `inj-closing-tag` (that dropped token), `en-grammar-3` in one run (it expanded "They're" to "They are"), the inline-code typo (see below), and `inj-translate`, a check that is too strict (it translated an injected sentence, which is correct).
 - **gemini-2.5-flash-lite:** also passed every Romanian sample, but dropped everything after the first sentence on `inj-closing-tag` in both runs (data loss). Google also lists it as "limited access", a retirement risk.
 - **mistral-small-2603:** followed an injected instruction in `inj-translate` (answered "I have been hacked." instead of translating), dropped text on `inj-closing-tag`, ignored the US spelling variant, left a cedilla (`Şi`) uncorrected, reformatted code, and had rate-limit errors.
 - **gpt-4.1-nano:** fails the 2 s criterion (p95 4.5 s) and has more diacritic errors.
@@ -53,11 +53,11 @@ Earlier passes (single sample or small n, not in the table):
 
 ## Decision
 
-Default for the OpenRouter provider (the extension's default provider) and the Google-endpoint path: **Gemini 3.1 Flash-Lite** for every mode (`google/gemini-3.1-flash-lite` on OpenRouter, `gemini-3.1-flash-lite` on Google's OpenAI-compatible endpoint). Chosen over 2.5 Flash-Lite because it did not lose text on the injection sample and is a stable (not limited-access) model, at about $0.47 a month per 3,000 calls (estimate). Gemini 2.5 Flash-Lite stays the cheaper, slightly faster option (about $0.17 per 3,000 calls) if the retirement risk is acceptable.
+Default for the OpenRouter provider (the extension's default provider) and the Google-endpoint path: **Gemini 3.1 Flash-Lite** for every mode (`google/gemini-3.1-flash-lite` on OpenRouter, `gemini-3.1-flash-lite` on Google's OpenAI-compatible endpoint). Chosen over 2.5 Flash-Lite (which scores 2 points higher on pass rate, and is faster and cheaper) because it did not drop sentences on the injection sample and is a stable (not limited-access) model, at about $0.47 a month per 3,000 calls (estimate). Gemini 2.5 Flash-Lite stays the cheaper, slightly faster option (about $0.17 per 3,000 calls) if the retirement risk is acceptable.
 
 | Mode                                                    | Default model                | Why                                            | p95                                 | Cost/call (estimate) |
 | ------------------------------------------------------- | ---------------------------- | ---------------------------------------------- | ----------------------------------- | -------------------- |
-| all (fix-only, fix-improve, shorten, tone-*, translate) | google/gemini-3.1-flash-lite | best quality of the four, under 2 s, no errors | 836 ms (900 ms on the 100-word Fix) | $0.000155            |
+| all (fix-only, fix-improve, shorten, tone-*, translate) | google/gemini-3.1-flash-lite | no dropped sentences (2.5 Flash-Lite scores 2 points higher on pass rate but loses text), stable model, under 2 s, no errors | 836 ms (900 ms on the 100-word Fix) | $0.000155            |
 
 Not benchmarked per mode: only Fix has a latency criterion, and the same model is used for all modes. Shorten, tone and translate quality were checked only through the shared samples; review their outputs after dogfooding.
 
@@ -65,7 +65,7 @@ Gemini 3.x prices are due to rise on 2027-01-01 (about double, per Google's pric
 
 How the default is applied:
 
-- `src/raycast/resolve.ts` (`GEMINI_OPENROUTER_MODEL`, `GEMINI_NATIVE_MODEL`, `compatibleDefaultModel`): an empty model resolves to the Gemini model for the `openrouter` provider, and for the OpenAI-compatible provider when the base URL host is `openrouter.ai` or `generativelanguage.googleapis.com`. Other hosts still need an explicit model.
+- `src/raycast/resolve.ts` (`GEMINI_OPENROUTER_MODEL`, `GEMINI_NATIVE_MODEL`, `compatibleDefaultModel`): an empty model resolves to the Gemini model for the `openrouter` provider, and for the OpenAI-compatible provider when the base URL host is `openrouter.ai` (or a subdomain) or `generativelanguage.googleapis.com`. Other hosts still need an explicit model.
 - The `openrouter` provider (`src/core/providers/index.ts`) always posts to `https://openrouter.ai/api/v1`, ignoring the Base URL preference, and it is the manifest's default provider.
 - The OpenAI provider still defaults to `gpt-5-mini` (`OPENAI_DEFAULT_MODEL` in `src/core/modes.ts`) and Anthropic to `claude-haiku-4-5-20251001` (`ANTHROPIC_DEFAULT_MODEL`). Neither was part of this benchmark through its own API, so they are unchanged. `gpt-5-nano` (OpenAI's cheapest) is worth a direct-API run (`openai:gpt-5-nano`), not through OpenRouter, because core only sends `reasoning_effort: minimal` to OpenAI's own endpoint.
 - Per-mode defaults would need a code change in `modes.ts` (see `AGENTS.md`).
@@ -82,4 +82,4 @@ How the default is applied:
 ## Re-evaluate when
 
 - A provider ships a new small model, or prices change.
-- Dogfooding (`docs/dogfood.md`) shows repeated failures on a mode.
+- Dogfooding (`docs/dogfood.md`, not yet written) shows repeated failures on a mode.

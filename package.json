@@ -134,8 +134,8 @@
       "type": "textfield",
       "required": false,
       "title": "Default Model",
-      "description": "Leave empty to use google/gemini-3.1-flash-lite (OpenRouter), gpt-5-mini (OpenAI) or claude-haiku-4-5-20251001 (Anthropic). OpenAI-compatible also falls back to Gemini 3.1 Flash-Lite on Google's endpoint and needs an explicit model for other hosts.",
-      "placeholder": "google/gemini-3.1-flash-lite"
+      "description": "Leave empty to use google/gemini-3.1-flash-lite (OpenRouter), gpt-5-mini (OpenAI) or claude-haiku-4-5-20251001 (Anthropic). Model ids are provider-specific: OpenRouter ids carry a vendor prefix (for example openai/gpt-5-mini). OpenAI-compatible falls back to Gemini 3.1 Flash-Lite on Google's endpoint and needs an explicit model for other hosts.",
+      "placeholder": "Leave empty for the provider's default"
     },
     {
       "name": "level",
