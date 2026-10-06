@@ -55,16 +55,16 @@ A fix sends a few hundred tokens, so with a small model each call costs a small 
 
 ## Troubleshooting
 
-| Message or symptom                     | What to do                                                                                                                                   |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Authentication error                   | The API key is wrong or does not match the Provider. Check both in the extension preferences.                                                |
-| Billing or quota error                 | Add credit or raise the spend limit at your provider.                                                                                        |
-| Rate limited                           | Wait a moment and try again, or pick another model.                                                                                          |
-| Timed out                              | The provider or model is slow. Try again, or set a faster model in Default Model.                                                            |
-| Nothing selected                       | Select text first. Some apps do not expose their selection to Raycast; try copying manually and using another app.                           |
-| Result is on the clipboard, not pasted | You switched apps while the request ran. Paste it yourself with `⌘ V`.                                                                       |
-| Base URL is rejected                   | Use an `https://` URL without a username or password. `http://` works only for localhost.                                                    |
-| Unknown model or request error         | The model id is not available at that provider. Check the spelling in Default Model or Model Override, or clear it to use the default model. |
+| Message or symptom                     | What to do                                                                                                                                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication error                   | The API key is wrong or does not match the Provider. Check both in the extension preferences.                                                                                                                                                        |
+| Billing or quota error                 | Add credit or raise the spend limit at your provider.                                                                                                                                                                                                |
+| Rate limited                           | Wait a moment and try again, or pick another model.                                                                                                                                                                                                  |
+| Timed out                              | The provider or model is slow. Try again, or set a faster model in Default Model.                                                                                                                                                                    |
+| Nothing selected                       | Select text first. Some apps do not expose their selection to Raycast; try copying manually and using another app.                                                                                                                                   |
+| Result is on the clipboard, not pasted | You switched apps while the request ran. Paste it yourself with `⌘ V`.                                                                                                                                                                               |
+| Base URL is rejected                   | Use an `https://` URL without a username or password. `http://` works only for localhost.                                                                                                                                                            |
+| Unknown model or request error         | The model id is not available at that provider. Check the spelling in Default Model or Model Override. With OpenRouter, OpenAI, Anthropic or Google you can clear it to use the built-in default; other OpenAI-compatible hosts always need a model. |
 
 ## Privacy
 
@@ -73,8 +73,8 @@ A fix sends a few hundred tokens, so with a small model each call costs a small 
 - Reading the selection and pasting the result go through the macOS clipboard. The result is briefly on the clipboard, so the system clipboard and any clipboard manager you run may see it (and may keep it) before your previous contents are restored.
 - With the OpenRouter provider (or an OpenAI-compatible base URL on `openrouter.ai`), requests also carry OpenRouter's app-attribution headers (the app name "Quick Fix Grammar" and this project's URL, marked hidden from public rankings) so usage shows under that name in your OpenRouter dashboard. They contain no text from you and are not sent to any other host.
 - Error messages shown by the extension can include text from the provider's response.
-- The only thing stored locally is the id of the last tone you picked in Change Tone, in Raycast's local storage.
-- Your API key is kept in Raycast's preferences (password field).
+- Besides your preferences, the only value the extension writes is the id of the last tone you picked in Change Tone, in Raycast's local storage.
+- Your API key is kept in Raycast's preferences (password field). Raycast stores preferences and local storage in its own encrypted local database.
 - Check your provider's own data-retention policy: they may retain API requests for a period.
 
 ## Development
