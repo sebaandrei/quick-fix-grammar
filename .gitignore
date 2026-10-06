@@ -37,3 +37,6 @@ Thumbs.db
 .remember/
 .claude/settings.local.json
 .codex/
+
+# Local planning doc, not published
+IMPLEMENTATION_PLAN.md
