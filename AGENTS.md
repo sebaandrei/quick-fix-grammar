@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Raycast extension (macOS, TypeScript/React): select text in any app, run a command, and the text is fixed, shortened, re-toned or translated in place with the user's own API key. See `README.md` for users and `IMPLEMENTATION_PLAN.md` for the original task list and decisions log (partly stale).
+Raycast extension (macOS, TypeScript/React): select text in any app, run a command, and the text is fixed, shortened, re-toned or translated in place with the user's own API key. See `README.md` for users.
 
 ## Commands
 
