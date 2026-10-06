@@ -30,5 +30,7 @@ jobs:
       - run: npx eslint .
       - run: npx prettier --check .
       - run: npm test
+      # Offline run with a fake model: catches eval harness and sample-file breakage without API keys.
+      - run: npm run bench -- --dry-run
       # Production dependencies only; dev-tool advisories are tracked by Dependabot.
       - run: npm audit --omit=dev --audit-level=high

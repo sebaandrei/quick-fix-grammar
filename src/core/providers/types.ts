@@ -24,10 +24,18 @@ export class ProviderError extends Error {
   override readonly name = "ProviderError";
   readonly kind: ProviderErrorKind;
   readonly status?: number;
+  /** True when the same request may succeed on a second try (connection hiccup, 429, 5xx). */
+  readonly retryable: boolean;
 
-  constructor(kind: ProviderErrorKind, message: string, status?: number, options?: { cause?: unknown }) {
+  constructor(
+    kind: ProviderErrorKind,
+    message: string,
+    status?: number,
+    options?: { cause?: unknown; retryable?: boolean },
+  ) {
     super(message, options);
     this.kind = kind;
     this.status = status;
+    this.retryable = options?.retryable ?? false;
   }
 }

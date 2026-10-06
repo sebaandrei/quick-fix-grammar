@@ -6,4 +6,5 @@
 - Shorten Text: make the selected text more concise.
 - Change Tone: Professional, Friendly, Casual, Confident, Direct; the last tone used is shown first.
 - Translate Text: English to Romanian, any other language to English, or a configurable target language.
+- A transient provider failure (network error, 429, 5xx) is retried once before an error is shown.
 - Bring your own API key: OpenRouter (default, using Gemini 3.1 Flash-Lite), OpenAI, Anthropic or any OpenAI-compatible endpoint.

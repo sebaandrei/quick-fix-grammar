@@ -47,7 +47,7 @@ A fix sends a few hundred tokens, so with a small model each call costs a small 
 - If you switch to another app while a request runs, nothing is pasted. The result is left on your clipboard instead.
 - Input is capped at 4,000 characters. Empty selections and over-long text show a message and nothing is pasted.
 - Any failure (no selection, bad key, rate limit, timeout, network) shows a message and leaves your text untouched.
-- Requests time out after 10 seconds. Redirects are not followed, and a response larger than 1 MB is discarded.
+- Requests time out after 10 seconds. A transient failure (network error, 408, 429 or 5xx) is retried once within that same budget. Redirects are not followed, and a response larger than 1 MB is discarded.
 - The Base URL of the OpenAI-compatible provider must be `https://`. Plain `http://` is accepted only for localhost, 127.0.0.1, [::1] and `*.local`, and the URL must not contain a username or password, because your key and text are sent there.
 - Model answers are cleaned of control, bidi, zero-width and Unicode tag characters, and an answer much longer than the input (over 4 times its length plus 500 characters) is rejected.
 - The model is told to treat your text as data and to ignore instructions inside it. Models can still make mistakes, so check important text.
