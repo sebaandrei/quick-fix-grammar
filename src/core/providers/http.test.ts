@@ -176,6 +176,36 @@ describe("postJson retry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not start the retry when the pause overran the deadline", async () => {
+    fetchMock.mockImplementation(async () => new Response("down", { status: 503 }));
+    const t0 = 1_000_000;
+    // Reads: deadline, pre-sleep budget check, post-sleep recompute (the clock jumped, e.g. the Mac slept).
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValueOnce(t0)
+      .mockReturnValueOnce(t0 + 10)
+      .mockReturnValueOnce(t0 + 5000);
+    try {
+      await expect(postJson(url, {}, {}, undefined, 1000)).rejects.toMatchObject({ status: 503 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("retries a retryable error thrown by the body check", async () => {
+    fetchMock.mockImplementation(async () => ok());
+    const check = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw errorForStatus(429, "slow down");
+      })
+      .mockImplementation(() => undefined);
+    expect(await postJson(url, {}, {}, undefined, undefined, check)).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry when the time budget is spent", async () => {
     fetchMock.mockResolvedValue(new Response("down", { status: 503 }));
     await expect(postJson(url, {}, {}, undefined, 100)).rejects.toMatchObject({ status: 503 });

@@ -82,7 +82,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * POST JSON with a timeout combined with an optional caller signal. A transient failure (network error, 408, 429,
- * 5xx) is retried once after a short pause; both attempts share `timeoutMs`, so the caller never waits longer.
+ * 5xx) is retried once after a short pause; both attempts share one deadline of `timeoutMs`, so the caller never
+ * waits longer. `check` inspects each parsed body and may throw a ProviderError (e.g. an error object sent with
+ * HTTP 200); a retryable one is retried like an HTTP failure.
  * Throws ProviderError (timeout / aborted / network / auth / billing / rate_limit / request / bad_response).
  * Returns the parsed JSON body.
  */
@@ -92,16 +94,24 @@ export async function postJson(
   body: unknown,
   signal?: AbortSignal,
   timeoutMs: number = REQUEST_TIMEOUT_MS,
+  check?: (json: unknown) => void,
 ): Promise<unknown> {
-  const started = Date.now();
+  const deadline = Date.now() + timeoutMs;
+  const attempt = async (budgetMs: number) => {
+    const json = await postJsonOnce(url, headers, body, signal, budgetMs);
+    check?.(json);
+    return json;
+  };
   try {
-    return await postJsonOnce(url, headers, body, signal, timeoutMs);
+    return await attempt(timeoutMs);
   } catch (e) {
-    const remaining = timeoutMs - (Date.now() - started) - RETRY_DELAY_MS;
-    if (!(e instanceof ProviderError) || !e.retryable || signal?.aborted || remaining <= 0) throw e;
+    if (!(e instanceof ProviderError) || !e.retryable || signal?.aborted) throw e;
+    if (deadline - Date.now() - RETRY_DELAY_MS <= 0) throw e;
     await sleep(RETRY_DELAY_MS, signal);
-    if (signal?.aborted) throw e;
-    return postJsonOnce(url, headers, body, signal, remaining);
+    // Recomputed after the pause: a stalled event loop or a sleeping Mac must not extend the deadline.
+    const remaining = deadline - Date.now();
+    if (signal?.aborted || remaining <= 0) throw e;
+    return attempt(remaining);
   }
 }
 
