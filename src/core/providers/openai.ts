@@ -92,9 +92,14 @@ export function createOpenAIProvider(cfg: OpenAIProviderConfig): LLMProvider {
         { Authorization: `Bearer ${cfg.apiKey}`, ...attributionHeaders(baseUrl) },
         body,
         req.signal,
+        undefined,
+        // Inside the retry boundary: OpenRouter reports 429/5xx as HTTP 200 with a top-level error object.
+        (parsed) => {
+          const err = (parsed as OpenAIResponse | null)?.error;
+          if (err) throw errorFromBody(err);
+        },
       )) as OpenAIResponse | null;
 
-      if (json?.error) throw errorFromBody(json.error);
       const choice = Array.isArray(json?.choices) ? json.choices[0] : undefined;
       const finishError = finishReasonError(choice?.finish_reason);
       if (finishError) throw finishError;

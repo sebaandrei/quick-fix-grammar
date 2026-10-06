@@ -1,6 +1,8 @@
 import { ProviderError } from "./types";
 
 export const REQUEST_TIMEOUT_MS = 10_000;
+/** Pause before the single retry of a transient failure. */
+export const RETRY_DELAY_MS = 300;
 
 export function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
@@ -42,14 +44,16 @@ export async function readTextCapped(res: Response, maxBytes: number = MAX_RESPO
 /** Map a non-2xx HTTP status to a ProviderError. Detail is truncated to 300 chars. */
 export function errorForStatus(status: number, detail: string): ProviderError {
   const d = detail.slice(0, MAX_DETAIL_CHARS).trim();
+  const retryable = status === 408 || status === 429 || (status >= 500 && status < 600);
   if (status === 401 || status === 403)
     return new ProviderError("auth", `Authentication failed (${status}). ${d}`.trim(), status);
   if (status === 402) return new ProviderError("billing", `Payment required (402). ${d}`.trim(), status);
-  if (status === 408) return new ProviderError("timeout", `Request timed out (408). ${d}`.trim(), status);
-  if (status === 429) return new ProviderError("rate_limit", `Rate limited (429). ${d}`.trim(), status);
+  if (status === 408)
+    return new ProviderError("timeout", `Request timed out (408). ${d}`.trim(), status, { retryable });
+  if (status === 429) return new ProviderError("rate_limit", `Rate limited (429). ${d}`.trim(), status, { retryable });
   if (status === 400 || status === 404 || status === 422)
     return new ProviderError("request", `Request rejected by the provider (${status}). ${d}`.trim(), status);
-  return new ProviderError("bad_response", `Request failed with status ${status}. ${d}`.trim(), status);
+  return new ProviderError("bad_response", `Request failed with status ${status}. ${d}`.trim(), status, { retryable });
 }
 
 /** undici reports `redirect: "error"` as a TypeError ("fetch failed") whose cause says "unexpected redirect". */
@@ -64,12 +68,54 @@ function abortError(timedOut: boolean, cause: unknown): ProviderError {
     : new ProviderError("aborted", "Request was aborted.", undefined, { cause });
 }
 
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 /**
- * POST JSON with a timeout combined with an optional caller signal.
+ * POST JSON with a timeout combined with an optional caller signal. A transient failure (network error, 408, 429,
+ * 5xx) is retried once after a short pause; both attempts share one deadline of `timeoutMs`, so the caller never
+ * waits longer. `check` inspects each parsed body and may throw a ProviderError (e.g. an error object sent with
+ * HTTP 200); a retryable one is retried like an HTTP failure.
  * Throws ProviderError (timeout / aborted / network / auth / billing / rate_limit / request / bad_response).
  * Returns the parsed JSON body.
  */
 export async function postJson(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  signal?: AbortSignal,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+  check?: (json: unknown) => void,
+): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs;
+  const attempt = async (budgetMs: number) => {
+    const json = await postJsonOnce(url, headers, body, signal, budgetMs);
+    check?.(json);
+    return json;
+  };
+  try {
+    return await attempt(timeoutMs);
+  } catch (e) {
+    if (!(e instanceof ProviderError) || !e.retryable || signal?.aborted) throw e;
+    if (deadline - Date.now() - RETRY_DELAY_MS <= 0) throw e;
+    await sleep(RETRY_DELAY_MS, signal);
+    // Recomputed after the pause: a stalled event loop or a sleeping Mac must not extend the deadline.
+    const remaining = deadline - Date.now();
+    if (signal?.aborted || remaining <= 0) throw e;
+    return attempt(remaining);
+  }
+}
+
+async function postJsonOnce(
   url: string,
   headers: Record<string, string>,
   body: unknown,
@@ -113,6 +159,7 @@ export async function postJson(
       }
       throw new ProviderError("network", `Network error: ${e instanceof Error ? e.message : String(e)}`, undefined, {
         cause: e,
+        retryable: true,
       });
     }
 

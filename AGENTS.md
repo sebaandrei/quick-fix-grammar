@@ -47,7 +47,7 @@ eval/            samples.jsonl, bench.ts, lib.ts (pure scoring, arg/sample parsi
 - **Secrets:** API keys come only from the `apiKey` password preference. Never hardcode, log or commit keys. Bench reads keys from env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` for `openrouter:` specs and OpenRouter base URLs, `OPENAI_COMPATIBLE_API_KEY` for any other base URL).
 - **Privacy:** text goes only to the user-configured provider. Never log or store user text or results (errors may be logged with `console.error`, which can include provider response text), no analytics, no caching. The only local storage is the last-used tone id (`LocalStorage` key `lastTone`). The README privacy section must stay true.
 - **Security:** the full list is in `SECURITY.md`. When changing the request or paste path keep these true, each has tests: Base URL accepted only as https (or loopback/`*.local` http, no credentials; `baseUrlProblem` in `src/core/providers/base-url.ts`, checked by `createProvider` and `validateConfig`); `fetch` uses `redirect: "error"`; responses are size-capped (`MAX_RESPONSE_BYTES`); the OpenAI-style request sends a generous `max_tokens`/`max_completion_tokens` and `runMode` rejects absurdly long answers (`MAX_OUTPUT_RATIO`); `sanitize` strips control/bidi/zero-width/tag characters unless the original had them and must stay linear-time on long whitespace; the paste is skipped when the frontmost app changed; provider text shown in a HUD is cleaned and clipped.
-- **Limits:** the 4,000-char input cap has a single source, `DEFAULT_MAX_CHARS` in `src/core/run.ts` (the Raycast layer must reference it, not repeat the number in code; prose docs may state it). The request timeout is 10 s (`REQUEST_TIMEOUT_MS` in `src/core/providers/http.ts`).
+- **Limits:** the 4,000-char input cap has a single source, `DEFAULT_MAX_CHARS` in `src/core/run.ts` (the Raycast layer must reference it, not repeat the number in code; prose docs may state it). The request timeout is 10 s (`REQUEST_TIMEOUT_MS` in `src/core/providers/http.ts`); `postJson` retries a transient failure (`ProviderError.retryable`: network, 408, 429, 5xx) once inside that same budget, never auth, billing, request or redirect errors.
 
 ## Code style
 
@@ -59,7 +59,7 @@ eval/            samples.jsonl, bench.ts, lib.ts (pure scoring, arg/sample parsi
 
 - Everything user-facing is **US English** and **Title Case** for the extension title and command titles. Command titles are `<verb> <noun>` or `<noun>`, no articles. Subtitles add context (service name) and must not repeat the title.
 - `package.json`: `license: MIT`, `author` = real Raycast username (`sebastian_andrei_roman`; `ray lint` checks it against raycast.com), valid categories (`Productivity`), latest `@raycast/api`, `platforms` matches reality (macOS only for now).
-- Icon: 512×512 PNG, works in light and dark, not the default Raycast icon (icon.ray.so). `assets/extension-icon.png` was rendered at 512×512 from an SVG that is no longer in the tree (`git show 2b4f504:docs/icon-source.svg`).
+- Icon: 512×512 PNG, works in light and dark, not the default Raycast icon (icon.ray.so). `assets/extension-icon.png` was rendered at 512×512 from `docs/icon-source.svg`.
 - Screenshots: 3 to 6, 2000×1250 PNG (16:10), made with Raycast's Window Capture, consistent background, no sensitive data. They go in `metadata/`.
 - `CHANGELOG.md`: `## [Title] - {PR_MERGE_DATE}` headings. Add an entry for every user-visible change.
 - Check the terms of service of the AI providers the extension calls.

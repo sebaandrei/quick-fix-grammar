@@ -287,12 +287,26 @@ describe("response edge cases", () => {
     [400, "request"],
     [503, "bad_response"],
   ])("openai HTTP 200 with a top-level error code %s -> %s", async (code, kind) => {
-    fetchMock.mockResolvedValue(json({ error: { code, message: "provider says no" } }));
+    fetchMock.mockImplementation(async () => json({ error: { code, message: "provider says no" } }));
     const err = await openai()
       .complete(req)
       .catch((e) => e);
     expect(err).toMatchObject({ name: "ProviderError", kind });
     expect(err.message).toMatch(/provider says no/);
+  });
+
+  it.each([429, 503])("openai retries once after HTTP 200 with a top-level error code %s", async (code) => {
+    fetchMock
+      .mockResolvedValueOnce(json({ error: { code, message: "try later" } }))
+      .mockResolvedValueOnce(openaiOk("fixed"));
+    await expect(openai().complete(req)).resolves.toBe("fixed");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("openai does not retry HTTP 200 with a non-transient error code", async () => {
+    fetchMock.mockResolvedValue(json({ error: { code: 401, message: "bad key" } }));
+    await expect(openai().complete(req)).rejects.toMatchObject({ kind: "auth" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("openai HTTP 200 with a non-numeric error code -> bad_response carrying the message", async () => {
